@@ -2,7 +2,34 @@
 
 An incremental idle clicker game built with **Godot 4**.
 
-## Concept
+## Current Playable Prototype (v0.1)
+
+You can already play a working version!
+
+### Features right now:
+- **Chips** currency
+- **3-Reel Slot Machine** with spin + auto-spin
+- Win multipliers (including jackpot on three 7s)
+- **Player Level + EXP**
+- **Skill Points** (earned on level up)
+- **Prestige system** (resets progress for permanent multiplier)
+- Save / Load (auto-saves on close)
+- Debug buttons for testing
+
+### How to run
+1. Clone the repo
+2. Open the project in **Godot 4.3+**
+3. Press Play
+
+### Controls
+- **SPIN** — play the slot machine (costs 10 chips)
+- **AUTO** — toggle auto-spin
+- **Prestige** — available at Level 10 or 5,000 total chips earned
+- Debug buttons at the bottom for quick testing
+
+---
+
+## Concept (Full Vision)
 
 Play (and eventually auto-play) a variety of gambling minigames to earn money and experience.
 
@@ -38,38 +65,10 @@ CasinoIdle/
 │   ├── sprites/
 │   ├── audio/
 │   └── fonts/
-├── .github/ISSUE_TEMPLATE/
 ├── project.godot
-├── icon.svg
-├── LICENSE
-├── CONTRIBUTING.md
-└── README.md
+└── ...
 ```
-
-## Current Status
-
-Repository is fully initialized and production-ready for development.
-
-- Godot 4 project configured
-- Clean folder structure
-- Autoload stubs
-- MIT License
-- Issue templates + labels
-- EditorConfig
-- Contributing guide
-
-**Next step**: Design core systems and implement the first minigames.
-
-## Planned Features
-
-- Multiple unlockable gambling machines
-- Idle / auto-play systems
-- Player leveling + Skill Tree
-- Prestige system
-- Offline progress
-- Local save system
-- Clean, polished UI
 
 ---
 
-*This project is under active development.*
+*This project is under active development. Prototype is playable — feedback welcome!*
