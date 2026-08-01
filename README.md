@@ -28,30 +28,37 @@ Prestige to gain permanent bonuses and unlock new content.
 
 ```
 CasinoIdle/
-├── autoload/          # Global systems (GameManager, SaveManager, etc.)
-├── scenes/            # All .tscn scene files
-├── scripts/           # Reusable scripts
+├── autoload/              # Global systems (GameManager, SaveManager)
+├── scenes/                # Main and other scenes
+├── scripts/               # Shared / utility scripts
+├── minigames/             # Each gambling game lives here
+├── ui/                    # Reusable UI components
+├── data/                  # Balance data, machine configs, etc.
 ├── assets/
 │   ├── sprites/
 │   ├── audio/
 │   └── fonts/
+├── .github/ISSUE_TEMPLATE/
 ├── project.godot
 ├── icon.svg
 ├── LICENSE
+├── CONTRIBUTING.md
 └── README.md
 ```
 
 ## Current Status
 
-Repository is fully initialized and ready for development.
+Repository is fully initialized and production-ready for development.
 
 - Godot 4 project configured
-- Basic folder structure in place
-- Autoload stubs created
-- MIT License added
-- Issue labels set up
+- Clean folder structure
+- Autoload stubs
+- MIT License
+- Issue templates + labels
+- EditorConfig
+- Contributing guide
 
-Next step: Design the core systems and begin implementing the first minigames.
+**Next step**: Design core systems and implement the first minigames.
 
 ## Planned Features
 
