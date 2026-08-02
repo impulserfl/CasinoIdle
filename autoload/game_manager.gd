@@ -112,7 +112,7 @@ func exp_to_next() -> float:
 func add_experience(raw: float) -> void:
 	if raw <= 0.0 or not is_finite(raw):
 		return
-	experience += raw * exp_multiplier()
+	experience += raw * exp_multiplier() * Events.exp_event_multiplier()
 	var levelled := false
 	var guard := 0
 	while experience >= exp_to_next() and guard < 100000:
@@ -167,7 +167,8 @@ func rtp_bonus() -> float:
 	return 0.005 * float(Upgrades.skill_level("card_counter")) \
 		+ 0.003 * float(Upgrades.skill_level("fortune_cookie")) \
 		+ 0.004 * float(Upgrades.prestige_rank("loaded_dice")) \
-		+ 0.0025 * float(Upgrades.prestige_rank("house_edge"))
+		+ 0.0025 * float(Upgrades.prestige_rank("house_edge")) \
+		+ Events.rtp_event_bonus()
 
 
 func cost_discount() -> float:
