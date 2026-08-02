@@ -7,7 +7,7 @@ signal changed()
 signal purchased(id: String, count: int)
 
 const GROWTH := 1.15
-const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]  # -1 == MAX
+const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]
 
 const GENERATORS: Array[Dictionary] = [
 	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 50.0,      "rate": 0.8},
@@ -20,6 +20,8 @@ const GENERATORS: Array[Dictionary] = [
 	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 5.4e9,     "rate": 1.25e6},
 	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 9.2e10,    "rate": 1.15e7},
 	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 1.6e12,    "rate": 1.05e8},
+	{"id": "resort",       "name": "Island Resort",     "icon": "🏝️", "cost": 3.0e13,    "rate": 1.2e9},
+	{"id": "orbital",      "name": "Orbital Casino",    "icon": "🛰️", "cost": 6.0e14,    "rate": 1.5e10},
 ]
 
 var owned: Dictionary = {}
@@ -51,14 +53,14 @@ func base_income() -> float:
 
 
 func income_per_second() -> float:
-	return base_income() * GameManager.income_multiplier()
+	return base_income() * GameManager.income_multiplier() * Events.income_event_multiplier()
 
 
 func income_from(id: String) -> float:
 	var d := generator_def(id)
 	if d.is_empty():
 		return 0.0
-	return float(count(id)) * float(d["rate"]) * GameManager.income_multiplier()
+	return float(count(id)) * float(d["rate"]) * GameManager.income_multiplier() * Events.income_event_multiplier()
 
 
 func _process(delta: float) -> void:
