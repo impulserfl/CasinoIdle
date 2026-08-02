@@ -139,17 +139,18 @@ func _refresh() -> void:
 	var pending := GameManager.pending_gold_chips()
 	_pending_label.text = "Prestige now for 💠 %s" % Fmt.chips(pending)
 
+	var req := GameManager.prestige_requirement()
 	if GameManager.can_prestige():
 		_requirement_label.text = "Resets chips, level, skills and the casino floor. " \
 			+ "Gold chips, prestige upgrades and achievements are kept."
 		_prestige_button.disabled = false
 		_prestige_button.text = "TAP AGAIN TO CONFIRM" if _confirming else "PRESTIGE"
 	else:
-		var short := GameManager.PRESTIGE_REQUIREMENT - GameManager.run_chips_earned
+		var short := req - GameManager.run_chips_earned
 		_requirement_label.text = "Earn %s more chips this run to unlock prestige (%s of %s)." % [
 			Fmt.chips(short),
 			Fmt.chips(GameManager.run_chips_earned),
-			Fmt.chips(GameManager.PRESTIGE_REQUIREMENT),
+			Fmt.chips(req),
 		]
 		_prestige_button.disabled = true
 		_prestige_button.text = "PRESTIGE LOCKED"
@@ -168,5 +169,5 @@ func _refresh() -> void:
 			buy.text = "MAXED"
 			buy.disabled = true
 		else:
-			buy.text = "Upgrade  -  💠 %d" % Upgrades.prestige_cost(String(id))
+			buy.text = "Upgrade  ·  💠 %d" % Upgrades.prestige_cost(String(id))
 			buy.disabled = not Upgrades.can_buy_prestige(String(id))
