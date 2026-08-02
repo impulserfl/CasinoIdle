@@ -1,8 +1,7 @@
 class_name Minigame
 extends Control
 
-## Shared shell for every gambling game: bet controls, play/auto buttons, result
-## line, per-table upgrades, wager bookkeeping and the capped RTP bonus.
+## Shared shell: bet controls, play/auto, result line, per-table upgrades, RTP cap.
 
 const AUTO_DELAY := 0.35
 const HARD_BET_CAP := 1e15
@@ -25,7 +24,6 @@ var auto_button: Button
 var odds_label: Label
 var _upgrade_box: VBoxContainer
 var _upgrade_rows: Dictionary = {}
-
 var _bet_initialised := false
 
 
@@ -43,59 +41,62 @@ func _ready() -> void:
 
 
 func _build_shell() -> void:
-	var root := UIKit.vbox(10)
+	var root := UIKit.vbox(12)
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.offset_left = 14
+	root.offset_left = 16
 	root.offset_top = 12
-	root.offset_right = -14
+	root.offset_right = -16
 	root.offset_bottom = -12
 	add_child(root)
 
 	var header := UIKit.hbox(10)
-	header.add_child(UIKit.title("%s  %s" % [game_icon, game_name], 24))
+	header.add_child(UIKit.title("%s  %s" % [game_icon, game_name], 26))
 	header.add_child(UIKit.spacer())
 	odds_label = UIKit.label("", 13, UIKit.DIM)
 	header.add_child(odds_label)
 	root.add_child(header)
 	root.add_child(UIKit.separator())
 
-	var body := UIKit.hbox(14)
+	var body := UIKit.hbox(16)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	var left := UIKit.vbox(10)
+	var left := UIKit.vbox(12)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board = UIKit.vbox(10)
 	board.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(board)
+
+	var result_panel := UIKit.panel(UIKit.PANEL_HI, 10, 1)
 	result_label = UIKit.label("Place your bet.", 20, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	result_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_child(result_label)
+	result_panel.add_child(result_label)
+	left.add_child(result_panel)
+
 	left.add_child(_build_bet_row())
 	var actions := UIKit.hbox(12)
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	play_button = UIKit.primary_button("PLAY", 22, UIKit.GOLD)
-	play_button.custom_minimum_size = Vector2(190, 52)
+	play_button.custom_minimum_size = Vector2(200, 56)
 	play_button.pressed.connect(_on_play_pressed)
 	actions.add_child(play_button)
 	auto_button = UIKit.button("AUTO: OFF", 18, UIKit.GREEN)
-	auto_button.custom_minimum_size = Vector2(150, 52)
+	auto_button.custom_minimum_size = Vector2(150, 56)
 	auto_button.pressed.connect(_on_auto_pressed)
 	actions.add_child(auto_button)
 	left.add_child(actions)
 	body.add_child(left)
-
 	body.add_child(_build_upgrade_panel())
 	root.add_child(body)
 
 
 func _build_upgrade_panel() -> Control:
-	var panel := UIKit.panel(UIKit.PANEL, 10, 1)
-	panel.custom_minimum_size = Vector2(280, 0)
+	var panel := UIKit.panel(UIKit.PANEL, 12, 1)
+	panel.custom_minimum_size = Vector2(290, 0)
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var col := UIKit.vbox(6)
-	col.add_child(UIKit.label("Table Upgrades", 16, UIKit.GOLD))
-	col.add_child(UIKit.wrapped("Skill points · reset on prestige", 11, UIKit.DIM))
+	var col := UIKit.vbox(8)
+	col.add_child(UIKit.label("Table Upgrades", 17, UIKit.GOLD))
+	col.add_child(UIKit.wrapped("Spend skill points. Resets on prestige.", 11, UIKit.DIM))
 	_upgrade_box = UIKit.vbox(6)
 	col.add_child(_upgrade_box)
 	panel.add_child(col)
@@ -112,8 +113,8 @@ func _refresh_upgrades() -> void:
 		var id := String(d["id"])
 		var rank := GameUpgrades.level(game_id, id)
 		var max_r := int(d["max"])
-		var row := UIKit.panel(UIKit.PANEL_HI if rank > 0 else UIKit.PANEL, 6, 1)
-		var inner := UIKit.vbox(2)
+		var row := UIKit.panel(UIKit.PANEL_HI if rank > 0 else UIKit.PANEL, 8, 1)
+		var inner := UIKit.vbox(3)
 		var head := UIKit.hbox(6)
 		head.add_child(UIKit.label(String(d["icon"]), 16))
 		var title := UIKit.label(String(d["name"]), 13, UIKit.TEXT)
@@ -123,7 +124,7 @@ func _refresh_upgrades() -> void:
 		inner.add_child(head)
 		inner.add_child(UIKit.label(String(d["effect_label"]), 11, UIKit.CYAN))
 		var buy := UIKit.button("MAX" if GameUpgrades.maxed(game_id, id) else "%d SP" % GameUpgrades.cost(game_id, id), 12, UIKit.GOLD)
-		buy.custom_minimum_size = Vector2(0, 28)
+		buy.custom_minimum_size = Vector2(0, 30)
 		buy.disabled = not GameUpgrades.can_buy(game_id, id)
 		buy.pressed.connect(_buy_upgrade.bind(id))
 		inner.add_child(buy)
@@ -147,11 +148,11 @@ func _build_bet_row() -> Control:
 	row.add_child(bet_label)
 	for entry in [["/10", 0.1], ["/2", 0.5], ["x2", 2.0], ["x10", 10.0]]:
 		var b := UIKit.button(String(entry[0]), 15)
-		b.custom_minimum_size = Vector2(52, 34)
+		b.custom_minimum_size = Vector2(52, 36)
 		b.pressed.connect(_scale_bet.bind(float(entry[1])))
 		row.add_child(b)
 	var max_button := UIKit.button("MAX", 15, UIKit.GOLD)
-	max_button.custom_minimum_size = Vector2(58, 34)
+	max_button.custom_minimum_size = Vector2(58, 36)
 	max_button.pressed.connect(_max_bet)
 	row.add_child(max_button)
 	return row
