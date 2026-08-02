@@ -10,10 +10,11 @@ signal stats_changed()
 signal toast(text: String, color: Color)
 
 const MAX_EFFECTIVE_RTP := 0.99
-const BASE_START_CHIPS := 250.0
-const BASE_PRESTIGE_REQUIREMENT := 10000.0
-const EXP_CURVE_BASE := 50.0
-const EXP_CURVE_POWER := 1.55
+const BASE_START_CHIPS := 100.0
+## First prestige around ~8–12 min of active play with the new floor curve.
+const BASE_PRESTIGE_REQUIREMENT := 5000.0
+const EXP_CURVE_BASE := 35.0
+const EXP_CURVE_POWER := 1.42
 
 var chips: float = BASE_START_CHIPS:
 	set(value):
@@ -21,7 +22,6 @@ var chips: float = BASE_START_CHIPS:
 			value = 0.0
 		chips = maxf(value, 0.0)
 		chips_changed.emit(chips)
-
 var run_chips_earned: float = 0.0
 var experience: float = 0.0
 var level: int = 1
@@ -186,9 +186,9 @@ func auto_delay_multiplier() -> float:
 
 
 func max_bet_fraction() -> float:
-	var f := 0.05 * (1.0 + 0.5 * float(Upgrades.skill_level("high_roller")))
+	var f := 0.08 * (1.0 + 0.4 * float(Upgrades.skill_level("high_roller")))
 	f *= 1.0 + 0.10 * float(Upgrades.prestige_rank("high_limit"))
-	return clampf(f, 0.05, 1.0)
+	return clampf(f, 0.08, 1.0)
 
 
 func offline_cap_seconds() -> float:
@@ -206,7 +206,8 @@ func record_wager(game_id: String, amount: float) -> void:
 	var plays: Dictionary = stats.get("plays", {})
 	plays[game_id] = int(plays.get(game_id, 0)) + 1
 	stats["plays"] = plays
-	var table_exp := 2.0 * sqrt(maxf(amount, 0.0)) * GameUpgrades.exp_multiplier(game_id)
+	# Slightly more EXP early so skill points show up in the first session.
+	var table_exp := 3.0 * sqrt(maxf(amount, 0.0)) * GameUpgrades.exp_multiplier(game_id)
 	add_experience(table_exp)
 	stats_changed.emit()
 
@@ -227,7 +228,8 @@ func record_result(payout: float, wager: float, is_jackpot: bool) -> void:
 
 
 func prestige_requirement() -> float:
-	return BASE_PRESTIGE_REQUIREMENT * (1.0 + 0.18 * float(prestige_count))
+	# Mild growth so prestige 2/3 don't feel like a brick wall.
+	return BASE_PRESTIGE_REQUIREMENT * pow(1.35, float(prestige_count))
 
 
 func can_prestige() -> bool:
@@ -237,7 +239,8 @@ func can_prestige() -> bool:
 func pending_gold_chips() -> float:
 	if not can_prestige():
 		return 0.0
-	var base := floorf(sqrt(run_chips_earned / 10000.0))
+	# First prestige always yields something meaningful.
+	var base := maxf(1.0, floorf(sqrt(run_chips_earned / 4000.0)))
 	var bonus := 1.0 + 0.05 * float(Upgrades.prestige_rank("compound_interest"))
 	return floorf(base * bonus)
 
