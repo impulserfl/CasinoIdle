@@ -1,30 +1,47 @@
 extends Node
 
-## The idle layer: properties on your casino floor that earn chips every second
-## from NPC patrons. This -- not gambling -- is where your money comes from.
+## Idle layer: properties earn chips every second. Gambling is never the chip source.
 
 signal changed()
 signal purchased(id: String, count: int)
 
-const GROWTH := 1.15
+## Slightly gentler than classic 1.15 so mid-game bulk buys stay rewarding.
+const GROWTH := 1.13
 const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]
 
+## Tuned so:
+##  - first property is free / instant income
+##  - ~30s to second tier, ~3-5 min to third
+##  - each tier is ~12-18x the previous cost with ~7-10x rate (healthy ROI)
+##  - late tiers still escalate but don't brick progression
 const GENERATORS: Array[Dictionary] = [
-	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 50.0,      "rate": 0.8},
-	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 650.0,     "rate": 6.0},
-	{"id": "roulette",     "name": "Roulette Wheel",    "icon": "🎡", "cost": 8500.0,    "rate": 42.0},
-	{"id": "poker",        "name": "Poker Room",        "icon": "♠️", "cost": 110000.0,  "rate": 290.0},
-	{"id": "craps",        "name": "Craps Pit",         "icon": "🎲", "cost": 1.4e6,     "rate": 2100.0},
-	{"id": "vip",          "name": "VIP Lounge",        "icon": "🥂", "cost": 2.0e7,     "rate": 16000.0},
-	{"id": "sportsbook",   "name": "Sports Book",       "icon": "🏇", "cost": 3.2e8,     "rate": 140000.0},
-	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 5.4e9,     "rate": 1.25e6},
-	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 9.2e10,    "rate": 1.15e7},
-	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 1.6e12,    "rate": 1.05e8},
-	{"id": "resort",       "name": "Island Resort",     "icon": "🏝️", "cost": 3.0e13,    "rate": 1.2e9},
-	{"id": "orbital",      "name": "Orbital Casino",    "icon": "🛰️", "cost": 6.0e14,    "rate": 1.5e10},
+	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 15.0,     "rate": 1.5},
+	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 120.0,    "rate": 8.0},
+	{"id": "roulette",     "name": "Roulette Wheel",    "icon": "🎡", "cost": 900.0,    "rate": 42.0},
+	{"id": "poker",        "name": "Poker Room",        "icon": "♠️", "cost": 7500.0,   "rate": 220.0},
+	{"id": "craps",        "name": "Craps Pit",         "icon": "🎲", "cost": 60000.0,  "rate": 1200.0},
+	{"id": "vip",          "name": "VIP Lounge",        "icon": "🥂", "cost": 5.0e5,    "rate": 7000.0},
+	{"id": "sportsbook",   "name": "Sports Book",       "icon": "🏇", "cost": 4.5e6,    "rate": 45000.0},
+	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 4.0e7,    "rate": 2.8e5},
+	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 3.5e8,    "rate": 1.8e6},
+	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 3.2e9,    "rate": 1.2e7},
+	{"id": "resort",       "name": "Island Resort",     "icon": "🏝️", "cost": 3.0e10,   "rate": 8.5e7},
+	{"id": "orbital",      "name": "Orbital Casino",    "icon": "🛰️", "cost": 3.0e11,   "rate": 6.5e8},
 ]
 
 var owned: Dictionary = {}
+var _started := false
+
+
+func _ready() -> void:
+	# Ensure a brand-new run always has something earning on second one.
+	call_deferred("_ensure_starter")
+
+
+func _ensure_starter() -> void:
+	if total_properties() == 0 and GameManager.prestige_count == 0:
+		owned["penny_slots"] = 1
+		changed.emit()
 
 
 func generator_def(id: String) -> Dictionary:
@@ -107,7 +124,7 @@ func buy(id: String, amount: int) -> bool:
 	var n := resolve_amount(id, amount)
 	if n <= 0:
 		return false
-	var price := cost_for(id, n)
+	var price := Casino.cost_for(id, n)
 	if not GameManager.spend_chips(price):
 		AudioManager.play_error()
 		return false
@@ -128,8 +145,9 @@ func is_unlocked(id: String) -> bool:
 		return true
 	if count(id) > 0:
 		return true
+	# Unlock next tier once you've earned ~15% of its base cost lifetime.
 	var lifetime := float(GameManager.stats.get("lifetime_chips_earned", 0.0))
-	return lifetime >= float(d["cost"]) * 0.3
+	return lifetime >= float(d["cost"]) * 0.15
 
 
 func unlocked_generators() -> Array[Dictionary]:
@@ -142,6 +160,8 @@ func unlocked_generators() -> Array[Dictionary]:
 
 func reset() -> void:
 	owned.clear()
+	# Prestige still grants a free starter so you never sit at 0 income.
+	owned["penny_slots"] = 1
 	changed.emit()
 
 
