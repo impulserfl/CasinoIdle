@@ -33,6 +33,7 @@ var _toast_box: VBoxContainer
 var _minigames: Array[Minigame] = []
 var _main_tabs: TabContainer
 var _daily_button: Button
+var _event_modal: Control = null
 
 
 func _ready() -> void:
@@ -52,8 +53,11 @@ func _ready() -> void:
 	GameManager.toast.connect(_show_toast)
 	GameManager.drain_pending_toasts()
 	Events.daily_changed.connect(_refresh_daily)
+	Events.random_event_spawned.connect(_on_random_event)
 	_show_offline_report()
 	_refresh_daily()
+	if Events.is_event_pending():
+		_on_random_event(Events.pending_event)
 
 
 func _build_background() -> void:
@@ -148,9 +152,9 @@ func _build_footer() -> Control:
 	row.add_child(_daily_button)
 
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("18 tables · Lucky Hour · Daily streak", 12, UIKit.DIM))
+	row.add_child(UIKit.label("18 tables · Rare events (45m CD)", 12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("v0.4.1", 12, UIKit.DIM))
+	row.add_child(UIKit.label("v0.5.1", 12, UIKit.DIM))
 	return row
 
 
@@ -171,6 +175,59 @@ func _refresh_daily() -> void:
 	else:
 		_daily_button.text = "🎁 Streak %d" % Events.daily_streak
 		_daily_button.disabled = true
+
+
+func _on_random_event(event: Dictionary) -> void:
+	if _event_modal != null and is_instance_valid(_event_modal):
+		return
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.7)
+	add_child(dim)
+	_event_modal = dim
+
+	var panel := UIKit.panel(UIKit.PANEL, 16, 2)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(480, 0)
+	panel.offset_left = -240
+	panel.offset_top = -140
+	panel.offset_right = 240
+	panel.offset_bottom = 140
+	dim.add_child(panel)
+
+	var col := UIKit.vbox(12)
+	col.add_child(UIKit.title("%s  Random Event" % String(event.get("icon", "⚡")), 24, UIKit.ORANGE))
+	col.add_child(UIKit.separator())
+	col.add_child(UIKit.label(String(event.get("name", "Event")), 22, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	col.add_child(UIKit.wrapped(String(event.get("desc", "")), 15, UIKit.TEXT))
+	col.add_child(UIKit.label("Next event in 45 minutes after this one.", 12, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+
+	var row := UIKit.hbox(12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var claim := UIKit.primary_button("CLAIM", 18, UIKit.GOLD)
+	claim.custom_minimum_size = Vector2(160, 48)
+	claim.pressed.connect(func():
+		Events.claim_pending_event()
+		AudioManager.play_click()
+		_close_event_modal()
+	)
+	row.add_child(claim)
+	var skip := UIKit.button("Skip", 16, UIKit.DIM)
+	skip.custom_minimum_size = Vector2(100, 48)
+	skip.pressed.connect(func():
+		Events.dismiss_pending_event()
+		AudioManager.play_click()
+		_close_event_modal()
+	)
+	row.add_child(skip)
+	col.add_child(row)
+	panel.add_child(col)
+
+
+func _close_event_modal() -> void:
+	if _event_modal != null and is_instance_valid(_event_modal):
+		_event_modal.queue_free()
+	_event_modal = null
 
 
 func _build_toast_layer() -> void:
