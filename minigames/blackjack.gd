@@ -46,7 +46,7 @@ func _build_board(container: VBoxContainer) -> void:
 		12, UIKit.DIM))
 
 
-func _draw() -> Dictionary:
+func _draw_card() -> Dictionary:
 	var i := randi() % RANKS.size()
 	return {"name": RANKS[i], "value": VALUES[i]}
 
@@ -78,8 +78,8 @@ func play_once() -> void:
 		return
 
 	var staked := bet
-	var player: Array = [_draw(), _draw()]
-	var dealer: Array = [_draw(), _draw()]
+	var player: Array = [_draw_card(), _draw_card()]
+	var dealer: Array = [_draw_card(), _draw_card()]
 
 	_player_label.text = _fmt(player)
 	_dealer_label.text = "%s  ?" % dealer[0]["name"]
@@ -105,18 +105,18 @@ func play_once() -> void:
 			return
 		elif pval == 21:
 			payout = staked * 2.5
-			var c := finish_round(payout, 0.52, true)
+			finish_round(payout, 0.52, true)
 			set_result("BLACKJACK!  +%s" % Fmt.chips(payout), UIKit.GOLD)
 			celebrate(payout, 2.5)
 			return
 		else:
-			var c2 := finish_round(0.0, 0.52, false)
+			finish_round(0.0, 0.52, false)
 			set_result("Dealer blackjack.", UIKit.DIM)
 			return
 
 	# Player hits to 17
 	while pval < 17 and player.size() < 6:
-		player.append(_draw())
+		player.append(_draw_card())
 		pval = _hand_value(player)
 		_player_label.text = _fmt(player)
 		_total_p.text = str(pval)
@@ -136,7 +136,7 @@ func play_once() -> void:
 	_total_d.text = str(dval)
 	await wait(0.2)
 	while dval < 17 and dealer.size() < 6:
-		dealer.append(_draw())
+		dealer.append(_draw_card())
 		dval = _hand_value(dealer)
 		_dealer_label.text = _fmt(dealer)
 		_total_d.text = str(dval)
@@ -144,12 +144,12 @@ func play_once() -> void:
 		if not is_inside_tree():
 			return
 
-	var payout := 0.0
+	var payout2 := 0.0
 	if dval > 21 or pval > dval:
-		payout = staked * 2.0
-		var credited := finish_round(payout, 0.52, false)
-		set_result("You win!  +%s" % Fmt.chips(payout), UIKit.GREEN)
-		celebrate(payout, 2.0)
+		payout2 = staked * 2.0
+		finish_round(payout2, 0.52, false)
+		set_result("You win!  +%s" % Fmt.chips(payout2), UIKit.GREEN)
+		celebrate(payout2, 2.0)
 	elif pval == dval:
 		GameManager.add_chips(staked, false)
 		finish_round(0.0, 1.0, false)
