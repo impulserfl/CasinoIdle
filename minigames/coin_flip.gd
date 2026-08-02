@@ -30,7 +30,7 @@ func _build_board(container: VBoxContainer) -> void:
 		_side_buttons[String(entry[0])] = b
 		row.add_child(b)
 	container.add_child(row)
-	container.add_child(UIKit.wrapped("Call it in the air. Pays 1.9× on a correct call.", 12, UIKit.DIM))
+	container.add_child(UIKit.wrapped("Call it in the air. Pays 1.9x on a correct call.", 12, UIKit.DIM))
 	_refresh()
 
 
@@ -55,21 +55,30 @@ func play_once() -> void:
 	var staked := bet
 	set_result("Flipping...", UIKit.DIM)
 	for i in range(10):
-		_coin_label.text = "🪙" if i % 2 == 0 else "⚪"
-		await wait(0.04 + i * 0.008)
+		if i % 2 == 0:
+			_coin_label.text = "🪙"
+		else:
+			_coin_label.text = "⚪"
+		await wait(0.04 + float(i) * 0.008)
 		if not is_inside_tree():
 			return
 
-	var result := "heads" if randf() < 0.5 else "tails"
-	_coin_label.text = "🪙" if result == "heads" else "⚪"
+	var result := "heads"
+	if randf() >= 0.5:
+		result = "tails"
+	if result == "heads":
+		_coin_label.text = "🪙"
+	else:
+		_coin_label.text = "⚪"
 	FX.pulse(_coin_label, 1.25, 0.2)
 
 	var won := result == _side
-	var payout := staked * 1.9 if won else 0.0
+	var payout := 0.0
+	if won:
+		payout = staked * 1.9
 	var credited := finish_round(payout, 0.5, false)
-
-if won:
+	if won:
 		set_result("%s!  +%s" % [result.capitalize(), Fmt.chips(payout)], UIKit.GREEN)
 		celebrate(payout, 1.9)
 	elif credited <= 0.0:
-		set_result("%s — wrong call." % result.capitalize(), UIKit.DIM)
+		set_result("%s - wrong call." % result.capitalize(), UIKit.DIM)
