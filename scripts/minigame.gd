@@ -3,18 +3,13 @@ extends Control
 
 ## Shared shell for every gambling game: bet controls, play/auto buttons, result
 ## line, wager bookkeeping and the capped RTP bonus.
-##
-## Subclasses override `_build_board()` to draw their table and `play_once()` to
-## run a single round, calling `wager()` at the start and `finish_round()` at the
-## end. Everything else is handled here.
 
 const AUTO_DELAY := 0.35
-const HARD_BET_CAP := 1e15  # Prevents float weirdness at extreme chip counts
+const HARD_BET_CAP := 1e15
 
 var game_id := "game"
 var game_name := "Game"
 var game_icon := "🎲"
-## Baseline return-to-player with zero upgrades. Used to size the fortune refund.
 var base_rtp := 0.95
 
 var bet: float = 10.0
@@ -41,10 +36,6 @@ func _ready() -> void:
 	_refresh_controls()
 	GameManager.chips_changed.connect(_on_chips_changed)
 
-
-# ===========================================================================
-# SHELL
-# ===========================================================================
 
 func _build_shell() -> void:
 	var root := UIKit.vbox(10)
@@ -109,11 +100,6 @@ func _build_bet_row() -> Control:
 	return row
 
 
-# ===========================================================================
-# BET CONTROL
-# ===========================================================================
-
-## The bet ceiling is a fraction of your bank, widened by the High Roller skill.
 func max_bet() -> float:
 	var soft := maxf(10.0, GameManager.chips * GameManager.max_bet_fraction())
 	return minf(soft, HARD_BET_CAP)
@@ -122,14 +108,15 @@ func max_bet() -> float:
 func _scale_bet(factor: float) -> void:
 	bet = clampf(bet * factor, 1.0, maxf(max_bet(), 1.0))
 	_sync_bet()
+	AudioManager.play_click()
 
 
 func _max_bet() -> void:
 	bet = maxf(floorf(max_bet()), 1.0)
 	_sync_bet()
+	AudioManager.play_click()
 
 
-## Keeps the bet legal as the bank grows or shrinks.
 func _sync_bet() -> void:
 	var ceiling := maxf(max_bet(), 1.0)
 	if not _bet_initialised:
@@ -162,13 +149,10 @@ func effective_rtp() -> float:
 	return minf(base_rtp + GameManager.rtp_bonus(), GameManager.MAX_EFFECTIVE_RTP)
 
 
-# ===========================================================================
-# ROUND LIFECYCLE
-# ===========================================================================
-
 func _on_play_pressed() -> void:
 	if busy:
 		return
+	AudioManager.play_click()
 	_start_round()
 
 
@@ -183,6 +167,7 @@ func _start_round() -> void:
 func _on_auto_pressed() -> void:
 	auto = not auto
 	_refresh_auto_button()
+	AudioManager.play_click()
 	if auto and not busy:
 		_run_auto()
 
@@ -194,20 +179,20 @@ func _refresh_auto_button() -> void:
 	auto_button.add_theme_color_override("font_color", UIKit.GREEN if auto else UIKit.TEXT)
 
 
-## Iterative rather than recursive so a long auto session cannot nest coroutines.
 func _run_auto() -> void:
 	busy = true
 	_refresh_controls()
 	while auto and is_inside_tree():
 		if not can_afford_bet():
 			set_result("Not enough chips for that bet.", UIKit.RED)
+			AudioManager.play_error()
 			auto = false
 			_refresh_auto_button()
 			break
 		await play_once()
 		if not auto or not is_inside_tree():
 			break
-		await wait(AUTO_DELAY)
+		await wait(AUTO_DELAY * GameManager.auto_delay_multiplier())
 	busy = false
 	_refresh_controls()
 
@@ -221,17 +206,17 @@ func _exit_tree() -> void:
 	auto = false
 
 
-## Deducts the stake and books the wager (stats + EXP). False if unaffordable.
 func wager(amount: float) -> bool:
 	if not GameManager.spend_chips(amount):
+		AudioManager.play_error()
 		return false
 	last_wager = amount
 	GameManager.record_wager(game_id, amount)
+	if not auto or Settings.auto_spin_sfx:
+		AudioManager.play_spin()
 	return true
 
 
-## Credits a result, applying the fortune refund when the round lost.
-## `loss_probability` is P(payout == 0) for the bet that was actually placed.
 func finish_round(payout: float, loss_probability: float, is_jackpot: bool = false) -> float:
 	var credited := payout
 	var refunded := false
@@ -240,7 +225,6 @@ func finish_round(payout: float, loss_probability: float, is_jackpot: bool = fal
 		refunded = true
 
 	if credited > 0.0:
-		# Refunds are not "earned" -- they must not inflate prestige or lifetime stats.
 		GameManager.add_chips(credited, not refunded)
 
 	GameManager.record_result(payout, last_wager, is_jackpot)
@@ -248,11 +232,14 @@ func finish_round(payout: float, loss_probability: float, is_jackpot: bool = fal
 	if refunded:
 		set_result("Close one — stake refunded.", UIKit.BLUE)
 		FX.float_text(self, "REFUND", UIKit.BLUE, size * 0.5, 24)
+		if not auto or Settings.auto_spin_sfx:
+			AudioManager.play_refund()
+	elif payout > 0.0 and last_wager > 0.0:
+		if not auto or Settings.auto_spin_sfx:
+			AudioManager.play_win(payout / last_wager)
 	return credited
 
 
-## Probability that a losing round is converted into a stake refund. Sized so
-## base_rtp + refund lands exactly on the clamped effective RTP.
 func fortune_refund_chance(loss_probability: float) -> float:
 	if loss_probability <= 0.0:
 		return 0.0
@@ -264,11 +251,6 @@ func _roll_fortune(loss_probability: float) -> bool:
 	return randf() < fortune_refund_chance(loss_probability)
 
 
-# ===========================================================================
-# HELPERS
-# ===========================================================================
-
-## Timer scaled by the Quick Hands skill. Safe to await after leaving the tree.
 func wait(seconds: float) -> void:
 	if not is_inside_tree():
 		return
@@ -295,7 +277,6 @@ func celebrate(amount: float, multiplier: float) -> void:
 	FX.float_text(self, prefix + Fmt.chips(amount), color, size * Vector2(0.5, 0.42), 32)
 
 
-## Weighted pick over an array of [value, weight] pairs.
 static func weighted_pick(entries: Array, rng: RandomNumberGenerator = null) -> Variant:
 	var total := 0.0
 	for e in entries:
@@ -307,10 +288,6 @@ static func weighted_pick(entries: Array, rng: RandomNumberGenerator = null) -> 
 			return e[0]
 	return entries[entries.size() - 1][0]
 
-
-# ===========================================================================
-# VIRTUALS
-# ===========================================================================
 
 func _build_board(_container: VBoxContainer) -> void:
 	pass
