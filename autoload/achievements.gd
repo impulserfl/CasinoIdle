@@ -32,6 +32,8 @@ const LIST: Array[Dictionary] = [
 	{"id": "daily_claim",  "name": "Regular Guest",   "icon": "🎁", "desc": "Claim a daily bonus."},
 	{"id": "daily_week",   "name": "Weekly Regular",  "icon": "📅", "desc": "Reach a 7-day daily streak."},
 	{"id": "table_hopper", "name": "Table Hopper",    "icon": "🧳", "desc": "Play 8 different games."},
+	{"id": "kraken",       "name": "Kraken Hunter",   "icon": "🦑", "desc": "Reel in the Kraken."},
+	{"id": "bullseye",     "name": "Bullseye",        "icon": "🔴", "desc": "Hit the dart bull for 10×."},
 ]
 
 var unlocked_ids: Dictionary = {}
@@ -115,6 +117,8 @@ func _test(id: String) -> bool:
 		"dedicated": return float(s.get("play_time", 0.0)) >= 7200.0
 		"daily_claim": return _flags.has("daily_claim") or Events.daily_streak >= 1
 		"daily_week": return Events.daily_streak >= 7
+		"kraken": return _flags.has("kraken")
+		"bullseye": return _flags.has("bullseye")
 		"table_hopper":
 			var plays: Dictionary = s.get("plays", {})
 			var kinds := 0
