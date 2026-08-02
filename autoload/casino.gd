@@ -10,16 +10,16 @@ const GROWTH := 1.15
 const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]  # -1 == MAX
 
 const GENERATORS: Array[Dictionary] = [
-	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 60.0,      "rate": 0.6},
-	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 780.0,     "rate": 5.0},
-	{"id": "roulette",     "name": "Roulette Wheel",    "icon": "🎡", "cost": 9600.0,    "rate": 38.0},
-	{"id": "poker",        "name": "Poker Room",        "icon": "♠️", "cost": 118000.0,  "rate": 270.0},
-	{"id": "craps",        "name": "Craps Pit",         "icon": "🎲", "cost": 1.5e6,     "rate": 2000.0},
-	{"id": "vip",          "name": "VIP Lounge",        "icon": "🥂", "cost": 2.1e7,     "rate": 15000.0},
-	{"id": "sportsbook",   "name": "Sports Book",       "icon": "🏇", "cost": 3.4e8,     "rate": 130000.0},
-	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 5.6e9,     "rate": 1.2e6},
-	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 9.5e10,    "rate": 1.1e7},
-	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 1.7e12,    "rate": 1.0e8},
+	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 50.0,      "rate": 0.8},
+	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 650.0,     "rate": 6.0},
+	{"id": "roulette",     "name": "Roulette Wheel",    "icon": "🎡", "cost": 8500.0,    "rate": 42.0},
+	{"id": "poker",        "name": "Poker Room",        "icon": "♠️", "cost": 110000.0,  "rate": 290.0},
+	{"id": "craps",        "name": "Craps Pit",         "icon": "🎲", "cost": 1.4e6,     "rate": 2100.0},
+	{"id": "vip",          "name": "VIP Lounge",        "icon": "🥂", "cost": 2.0e7,     "rate": 16000.0},
+	{"id": "sportsbook",   "name": "Sports Book",       "icon": "🏇", "cost": 3.2e8,     "rate": 140000.0},
+	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 5.4e9,     "rate": 1.25e6},
+	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 9.2e10,    "rate": 1.15e7},
+	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 1.6e12,    "rate": 1.05e8},
 ]
 
 var owned: Dictionary = {}
@@ -43,11 +43,6 @@ func total_properties() -> int:
 	return n
 
 
-# ===========================================================================
-# INCOME
-# ===========================================================================
-
-## Raw chips/sec before the income multiplier.
 func base_income() -> float:
 	var total := 0.0
 	for d in GENERATORS:
@@ -72,12 +67,6 @@ func _process(delta: float) -> void:
 		GameManager.add_chips(income * delta)
 
 
-# ===========================================================================
-# COSTS
-# ===========================================================================
-
-## Cost of buying `amount` more of `id`, starting from what you already own.
-## Geometric series: base * growth^owned * (growth^amount - 1) / (growth - 1)
 func cost_for(id: String, amount: int) -> float:
 	var d := generator_def(id)
 	if d.is_empty() or amount <= 0:
@@ -87,7 +76,6 @@ func cost_for(id: String, amount: int) -> float:
 	return base * start * (pow(GROWTH, float(amount)) - 1.0) / (GROWTH - 1.0)
 
 
-## Largest `n` affordable right now. Inverse of the geometric series above.
 func max_affordable(id: String) -> int:
 	var d := generator_def(id)
 	if d.is_empty():
@@ -103,7 +91,6 @@ func max_affordable(id: String) -> int:
 	return maxi(n, 0)
 
 
-## Resolves a BUY_AMOUNTS entry (-1 == MAX) into a concrete count.
 func resolve_amount(id: String, requested: int) -> int:
 	if requested == -1:
 		return maxi(max_affordable(id), 1)
@@ -114,31 +101,23 @@ func can_afford(id: String, amount: int) -> bool:
 	return GameManager.chips >= cost_for(id, amount)
 
 
-# ===========================================================================
-# PURCHASE
-# ===========================================================================
-
 func buy(id: String, amount: int) -> bool:
 	var n := resolve_amount(id, amount)
 	if n <= 0:
 		return false
 	var price := cost_for(id, n)
 	if not GameManager.spend_chips(price):
+		AudioManager.play_error()
 		return false
 	owned[id] = count(id) + n
 	GameManager.stats["properties_bought"] = int(GameManager.stats.get("properties_bought", 0)) + n
 	purchased.emit(id, n)
 	changed.emit()
+	AudioManager.play_buy()
 	Achievements.check_all()
 	return true
 
 
-# ===========================================================================
-# UNLOCKS
-# ===========================================================================
-
-## A tier reveals itself once you have earned a meaningful fraction of its price
-## at any point in your career, so tiers never re-hide after a prestige.
 func is_unlocked(id: String) -> bool:
 	var d := generator_def(id)
 	if d.is_empty():
@@ -159,16 +138,11 @@ func unlocked_generators() -> Array[Dictionary]:
 	return out
 
 
-# ===========================================================================
-# PRESTIGE SUPPORT
-# ===========================================================================
-
 func reset() -> void:
 	owned.clear()
 	changed.emit()
 
 
-## "Grandfathered" prestige upgrade: keep some property through the reset.
 func grant_free_start(ranks: int) -> void:
 	if ranks <= 0:
 		return
