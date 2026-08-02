@@ -16,6 +16,8 @@ const VideoPoker := preload("res://minigames/video_poker.gd")
 const War := preload("res://minigames/war.gd")
 const CoinPusher := preload("res://minigames/coin_pusher.gd")
 const ClawMachine := preload("res://minigames/claw_machine.gd")
+const Darts := preload("res://minigames/darts.gd")
+const Fishing := preload("res://minigames/fishing.gd")
 
 const TopBar := preload("res://ui/top_bar.gd")
 const CasinoPanel := preload("res://ui/casino_panel.gd")
@@ -96,7 +98,7 @@ func _build_tabs() -> Control:
 
 
 func _build_play_tab() -> Control:
-	var tabs := _tab_container(13)
+	var tabs := _tab_container(12)
 	tabs.tab_changed.connect(_on_game_tab_changed)
 	var games: Array = [
 		[SlotMachine, "🎰 Slots"], [Roulette, "🎡 Roulette"], [Dice, "🎲 Dice"],
@@ -104,7 +106,7 @@ func _build_play_tab() -> Control:
 		[Plinko, "🔵 Plinko"], [CoinFlip, "🪙 Flip"], [MoneyWheel, "🎯 Wheel"],
 		[Crash, "📈 Crash"], [Keno, "🎱 Keno"], [Baccarat, "🎴 Bacc"],
 		[VideoPoker, "♠️ Poker"], [War, "⚔️ War"], [CoinPusher, "🪙 Push"],
-		[ClawMachine, "🦾 Claw"],
+		[ClawMachine, "🦾 Claw"], [Darts, "🎯 Darts"], [Fishing, "🎣 Fish"],
 	]
 	for entry in games:
 		var g: Minigame = entry[0].new()
@@ -146,9 +148,9 @@ func _build_footer() -> Control:
 	row.add_child(_daily_button)
 
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("16 tables · Lucky Hour · Daily streak", 12, UIKit.DIM))
+	row.add_child(UIKit.label("18 tables · Lucky Hour · Daily streak", 12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("v0.4.0", 12, UIKit.DIM))
+	row.add_child(UIKit.label("v0.4.1", 12, UIKit.DIM))
 	return row
 
 
