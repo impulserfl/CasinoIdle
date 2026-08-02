@@ -1,12 +1,5 @@
 extends Node
 
-## Versioned save/load with autosave, crash tolerance and offline progress.
-##
-## v1 (the original prototype) stored a flat [player] section and a derived
-## `prestige_multiplier`. `_migrate_v1` maps it onto the current schema; derived
-## values are recomputed rather than trusted, so a formula change never leaves an
-## old save on the old maths.
-
 signal offline_earnings(amount: float, seconds: float, capped: bool)
 
 const SAVE_PATH := "user://casino_idle_save.cfg"
@@ -15,7 +8,6 @@ const SAVE_VERSION := 2
 const AUTOSAVE_INTERVAL := 20.0
 
 var pending_offline: Dictionary = {}
-
 var _autosave_timer := 0.0
 var _loaded := false
 
@@ -34,35 +26,25 @@ func _process(delta: float) -> void:
 		save_game(true)
 
 
-# ===========================================================================
-# SAVE
-# ===========================================================================
-
 func save_game(silent: bool = false) -> void:
 	var config := ConfigFile.new()
-
 	config.set_value("meta", "version", SAVE_VERSION)
 	config.set_value("meta", "saved_at", Time.get_unix_time_from_system())
-
 	config.set_value("run", "chips", GameManager.chips)
 	config.set_value("run", "run_chips_earned", GameManager.run_chips_earned)
 	config.set_value("run", "experience", GameManager.experience)
 	config.set_value("run", "level", GameManager.level)
 	config.set_value("run", "skill_points", GameManager.skill_points)
-
 	config.set_value("meta_progress", "prestige_count", GameManager.prestige_count)
 	config.set_value("meta_progress", "gold_chips", GameManager.gold_chips)
-
 	config.set_value("upgrades", "skills", Upgrades.skill_levels)
 	config.set_value("upgrades", "prestige", Upgrades.prestige_levels)
-
 	config.set_value("casino", "owned", Casino.owned)
-
 	config.set_value("achievements", "unlocked", Achievements.unlocked_ids)
 	config.set_value("achievements", "flags", Achievements._flags)
-
 	config.set_value("stats", "data", GameManager.stats)
 	config.set_value("settings", "data", Settings.to_dict())
+	config.set_value("events", "data", Events.to_dict())
 
 	if FileAccess.file_exists(SAVE_PATH):
 		var prev := FileAccess.open(SAVE_PATH, FileAccess.READ)
@@ -83,10 +65,6 @@ func save_game(silent: bool = false) -> void:
 		AudioManager.play_click()
 
 
-# ===========================================================================
-# LOAD
-# ===========================================================================
-
 func load_game() -> void:
 	var config := ConfigFile.new()
 	var err := config.load(SAVE_PATH)
@@ -105,6 +83,7 @@ func load_game() -> void:
 		_load_v2(config)
 
 	Settings.from_dict(_as_dict(config.get_value("settings", "data", {})))
+	Events.from_dict(_as_dict(config.get_value("events", "data", {})))
 
 	GameManager.broadcast()
 	Upgrades.changed.emit()
@@ -118,18 +97,13 @@ func _load_v2(config: ConfigFile) -> void:
 	GameManager.experience = float(config.get_value("run", "experience", 0.0))
 	GameManager.level = int(config.get_value("run", "level", 1))
 	GameManager.skill_points = int(config.get_value("run", "skill_points", 0))
-
 	GameManager.prestige_count = int(config.get_value("meta_progress", "prestige_count", 0))
 	GameManager.gold_chips = float(config.get_value("meta_progress", "gold_chips", 0.0))
-
 	Upgrades.skill_levels = _as_dict(config.get_value("upgrades", "skills", {}))
 	Upgrades.prestige_levels = _as_dict(config.get_value("upgrades", "prestige", {}))
-
 	Casino.owned = _as_dict(config.get_value("casino", "owned", {}))
-
 	Achievements.unlocked_ids = _as_dict(config.get_value("achievements", "unlocked", {}))
 	Achievements._flags = _as_dict(config.get_value("achievements", "flags", {}))
-
 	var loaded_stats := _as_dict(config.get_value("stats", "data", {}))
 	var stats := GameManager.default_stats()
 	for key in loaded_stats:
@@ -146,11 +120,9 @@ func _migrate_v1(config: ConfigFile) -> void:
 	GameManager.skill_points = int(config.get_value("player", "skill_points", 0))
 	GameManager.prestige_count = int(config.get_value("player", "prestige_level", 0))
 	GameManager.gold_chips = 0.0
-
 	GameManager.stats = GameManager.default_stats()
 	GameManager.stats["lifetime_chips_earned"] = earned
 	GameManager.stats["prestiges"] = GameManager.prestige_count
-
 	push_warning("CasinoIdle: migrated a v1 save to v2.")
 	GameManager.notify_toast("Save migrated to v2", UIKit.BLUE)
 
@@ -159,10 +131,6 @@ func _as_dict(value: Variant) -> Dictionary:
 	return value if value is Dictionary else {}
 
 
-# ===========================================================================
-# OFFLINE PROGRESS
-# ===========================================================================
-
 func _apply_offline_progress(saved_at: float) -> void:
 	if saved_at <= 0.0:
 		return
@@ -170,14 +138,12 @@ func _apply_offline_progress(saved_at: float) -> void:
 	var elapsed := float(now) - saved_at
 	if elapsed < 60.0:
 		return
-
 	var cap := GameManager.offline_cap_seconds()
 	var capped := elapsed > cap
 	var effective := minf(elapsed, cap)
 	var earned := Casino.income_per_second() * effective * GameManager.offline_efficiency()
 	if earned <= 0.0:
 		return
-
 	GameManager.add_chips(earned)
 	pending_offline = {"amount": earned, "seconds": elapsed, "capped": capped, "cap": cap}
 	offline_earnings.emit(earned, elapsed, capped)
@@ -189,16 +155,11 @@ func claim_offline_report() -> Dictionary:
 	return report
 
 
-# ===========================================================================
-# WIPE / RESET
-# ===========================================================================
-
 func wipe_save() -> void:
 	if FileAccess.file_exists(SAVE_PATH):
 		DirAccess.remove_absolute(SAVE_PATH)
 	if FileAccess.file_exists(BACKUP_PATH):
 		DirAccess.remove_absolute(BACKUP_PATH)
-
 	GameManager.prestige_count = 0
 	GameManager.gold_chips = 0.0
 	GameManager.stats = GameManager.default_stats()
@@ -207,19 +168,15 @@ func wipe_save() -> void:
 	Casino.owned.clear()
 	Achievements.unlocked_ids.clear()
 	Achievements._flags.clear()
-
+	Events.last_daily_day = -1
+	Events.daily_streak = 0
 	GameManager.reset_run()
 	GameManager.broadcast()
 	Upgrades.changed.emit()
 	Casino.changed.emit()
 	Achievements.check_all()
-
 	save_game(true)
 
-
-# ===========================================================================
-# SHUTDOWN
-# ===========================================================================
 
 func _notification(what: int) -> void:
 	match what:
