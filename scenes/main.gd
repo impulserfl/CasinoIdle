@@ -145,8 +145,6 @@ func _build_background() -> void:
 	bg.color = UIKit.BG
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-
-	# Soft radial glow orbs for ambient casino lighting
 	var glow_gold := ColorRect.new()
 	glow_gold.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	glow_gold.offset_left = -120
@@ -156,7 +154,6 @@ func _build_background() -> void:
 	glow_gold.color = Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.045)
 	glow_gold.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(glow_gold)
-
 	var glow_purple := ColorRect.new()
 	glow_purple.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	glow_purple.offset_left = -380
@@ -166,7 +163,6 @@ func _build_background() -> void:
 	glow_purple.color = Color(UIKit.PURPLE.r, UIKit.PURPLE.g, UIKit.PURPLE.b, 0.04)
 	glow_purple.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(glow_purple)
-
 	var vignette := ColorRect.new()
 	vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vignette.color = Color(0.02, 0.01, 0.04, 0.35)
@@ -181,11 +177,9 @@ func _tab_container(font_size: int) -> TabContainer:
 	tabs.add_theme_font_size_override("font_size", font_size)
 	tabs.add_theme_constant_override("icon_max_width", font_size + 8)
 	tabs.add_theme_constant_override("side_margin", 6)
-
 	var panel_sb := UIKit.glass_stylebox(14)
 	panel_sb.content_margin_top = 10
 	tabs.add_theme_stylebox_override("panel", panel_sb)
-
 	var sel := UIKit.stylebox(UIKit.PANEL_HI, 10, 1, Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.55))
 	sel.shadow_color = Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.2)
 	sel.shadow_size = 8
@@ -194,21 +188,18 @@ func _tab_container(font_size: int) -> TabContainer:
 	sel.content_margin_top = 8
 	sel.content_margin_bottom = 8
 	tabs.add_theme_stylebox_override("tab_selected", sel)
-
 	var unsel := UIKit.stylebox(UIKit.BG_DEEP, 10, 0)
 	unsel.content_margin_left = 12
 	unsel.content_margin_right = 12
 	unsel.content_margin_top = 8
 	unsel.content_margin_bottom = 8
 	tabs.add_theme_stylebox_override("tab_unselected", unsel)
-
 	var hover := UIKit.stylebox(UIKit.PANEL_HI, 10, 1, UIKit.PANEL_EDGE)
 	hover.content_margin_left = 12
 	hover.content_margin_right = 12
 	hover.content_margin_top = 8
 	hover.content_margin_bottom = 8
 	tabs.add_theme_stylebox_override("tab_hovered", hover)
-
 	tabs.add_theme_color_override("font_selected_color", UIKit.GOLD)
 	tabs.add_theme_color_override("font_unselected_color", UIKit.DIM)
 	tabs.add_theme_color_override("font_hovered_color", UIKit.TEXT)
@@ -307,6 +298,15 @@ func _stop_all_auto() -> void:
 func _build_footer() -> Control:
 	var bar := UIKit.glass_panel(12)
 	var row := UIKit.hbox(12)
+	var title_btn := UIKit.button("Title", 14, UIKit.PURPLE)
+	title_btn.custom_minimum_size = Vector2(90, 38)
+	title_btn.pressed.connect(func():
+		SaveManager.save_game(true)
+		AudioManager.play_click()
+		get_tree().change_scene_to_file("res://scenes/title.tscn")
+	)
+	row.add_child(title_btn)
+
 	var save_button := UIKit.icon_button("save", "Save", 14, UIKit.GREEN)
 	save_button.custom_minimum_size = Vector2(110, 38)
 	save_button.pressed.connect(func(): SaveManager.save_game(false))
@@ -318,9 +318,9 @@ func _build_footer() -> Control:
 	row.add_child(_daily_button)
 
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("CasinoIdle  -  Midnight Gold", 12, UIKit.DIM))
+	row.add_child(UIKit.label("CasinoIdle  ·  Slot %d" % (SaveManager.active_slot + 1), 12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("v%s" % ProjectSettings.get_setting("application/config/version", "0.8.0"),
+	row.add_child(UIKit.label("v%s" % ProjectSettings.get_setting("application/config/version", "1.0.0"),
 		12, UIKit.FAINT))
 	bar.add_child(row)
 	return bar
@@ -353,7 +353,6 @@ func _open_modal(width: int, height: int) -> VBoxContainer:
 	dim.color = Color(0.02, 0.01, 0.04, 0.78)
 	add_child(dim)
 	_modal = dim
-
 	var panel := UIKit.glass_panel(18)
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.custom_minimum_size = Vector2(width, 0)
@@ -362,7 +361,6 @@ func _open_modal(width: int, height: int) -> VBoxContainer:
 	panel.offset_right = width / 2.0
 	panel.offset_bottom = height / 2.0
 	dim.add_child(panel)
-
 	var col := UIKit.vbox(14)
 	panel.add_child(col)
 	return col
