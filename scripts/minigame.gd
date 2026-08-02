@@ -9,6 +9,7 @@ extends Control
 ## end. Everything else is handled here.
 
 const AUTO_DELAY := 0.35
+const HARD_BET_CAP := 1e15  # Prevents float weirdness at extreme chip counts
 
 var game_id := "game"
 var game_name := "Game"
@@ -114,7 +115,8 @@ func _build_bet_row() -> Control:
 
 ## The bet ceiling is a fraction of your bank, widened by the High Roller skill.
 func max_bet() -> float:
-	return maxf(10.0, GameManager.chips * GameManager.max_bet_fraction())
+	var soft := maxf(10.0, GameManager.chips * GameManager.max_bet_fraction())
+	return minf(soft, HARD_BET_CAP)
 
 
 func _scale_bet(factor: float) -> void:
@@ -244,7 +246,7 @@ func finish_round(payout: float, loss_probability: float, is_jackpot: bool = fal
 	GameManager.record_result(payout, last_wager, is_jackpot)
 
 	if refunded:
-		set_result("Close one -- stake refunded.", UIKit.BLUE)
+		set_result("Close one — stake refunded.", UIKit.BLUE)
 		FX.float_text(self, "REFUND", UIKit.BLUE, size * 0.5, 24)
 	return credited
 
