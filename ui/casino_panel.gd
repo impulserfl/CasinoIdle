@@ -21,17 +21,17 @@ func _ready() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	var root := UIKit.vbox(12)
+	var root := UIKit.vbox(14)
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.offset_left = 16
-	root.offset_top = 14
-	root.offset_right = -16
-	root.offset_bottom = -14
+	root.offset_left = 18
+	root.offset_top = 16
+	root.offset_right = -18
+	root.offset_bottom = -16
 	add_child(root)
 
 	var header := UIKit.hbox(12)
-	header.add_child(UIKit.icon("floor", 32))
-	header.add_child(UIKit.title("Casino Floor", 25))
+	header.add_child(UIKit.icon("floor", 34))
+	header.add_child(UIKit.title("Casino Floor", 26))
 	header.add_child(UIKit.spacer())
 	header.add_child(UIKit.label("Buy", 13, UIKit.DIM))
 	var ids: Array = []
@@ -44,9 +44,9 @@ func _ready() -> void:
 		_amount_buttons[id].pressed.connect(_set_buy_amount.bind(int(id)))
 	root.add_child(header)
 
-	var summary_panel := UIKit.accent_panel(UIKit.GREEN, UIKit.PANEL_HI, 10)
-	var sum_col := UIKit.vbox(3)
-	_summary = UIKit.numeral("", 20, UIKit.GREEN)
+	var summary_panel := UIKit.accent_panel(UIKit.GREEN, UIKit.PANEL_HI, 12)
+	var sum_col := UIKit.vbox(4)
+	_summary = UIKit.numeral("", 22, UIKit.GREEN)
 	_detail = UIKit.label("", 12, UIKit.DIM)
 	sum_col.add_child(_summary)
 	sum_col.add_child(_detail)
@@ -54,15 +54,15 @@ func _ready() -> void:
 	root.add_child(summary_panel)
 
 	var scroll := UIKit.scroll()
-	_list = UIKit.vbox(9)
+	_list = UIKit.vbox(10)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_list)
 	root.add_child(scroll)
 
-	_next_panel = UIKit.panel(UIKit.PANEL, 10, 1)
-	var next_col := UIKit.vbox(4)
+	_next_panel = UIKit.glass_panel(12)
+	var next_col := UIKit.vbox(5)
 	_next_label = UIKit.label("", 13, UIKit.CYAN)
-	_next_bar = UIKit.progress_bar(UIKit.CYAN, 6)
+	_next_bar = UIKit.progress_bar(UIKit.CYAN, 7)
 	next_col.add_child(_next_label)
 	next_col.add_child(_next_bar)
 	_next_panel.add_child(next_col)
@@ -105,14 +105,14 @@ func _rebuild() -> void:
 func _make_row(d: Dictionary) -> Control:
 	var id := String(d["id"])
 	var compact: bool = Settings.compact_rows
-	var panel := UIKit.panel(UIKit.PANEL, 12, 1)
+	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 1)
 	var row := UIKit.hbox(14)
 
-	row.add_child(UIKit.icon_tile(String(d["icon"]), 56 if compact else 64, 34 if compact else 40))
+	row.add_child(UIKit.icon_tile(String(d["icon"]), 56 if compact else 66, 34 if compact else 42))
 
-	var info := UIKit.vbox(2)
+	var info := UIKit.vbox(3)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info.add_child(UIKit.label(String(d["name"]), 17 if compact else 18, UIKit.TEXT))
+	info.add_child(UIKit.label(String(d["name"]), 17 if compact else 19, UIKit.TEXT))
 	var detail_label := UIKit.label("", 12, UIKit.DIM)
 	info.add_child(detail_label)
 	var roi_label := UIKit.label("", 11, UIKit.CYAN)
@@ -121,14 +121,14 @@ func _make_row(d: Dictionary) -> Control:
 	row.add_child(info)
 
 	var owned_col := UIKit.vbox(0)
-	owned_col.custom_minimum_size = Vector2(74, 0)
-	var owned_label := UIKit.numeral("0", 26, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	owned_col.custom_minimum_size = Vector2(78, 0)
+	var owned_label := UIKit.numeral("0", 28, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
 	owned_col.add_child(owned_label)
 	owned_col.add_child(UIKit.label("owned", 10, UIKit.DIM, HORIZONTAL_ALIGNMENT_RIGHT))
 	row.add_child(owned_col)
 
 	var buy := UIKit.primary_button("", 14, UIKit.GOLD)
-	buy.custom_minimum_size = Vector2(180, 50 if compact else 54)
+	buy.custom_minimum_size = Vector2(188, 52 if compact else 56)
 	buy.pressed.connect(_buy.bind(id))
 	row.add_child(buy)
 
@@ -144,7 +144,7 @@ func _buy(id: String) -> void:
 		if row.has("owned"):
 			FX.pulse(row["owned"], 1.3, 0.25)
 		if row.has("panel"):
-			FX.flash(row["panel"], Color(UIKit.GOLD, 0.35), 0.35)
+			FX.flash(row["panel"], Color(UIKit.GOLD, 0.4), 0.35)
 		_refresh()
 
 
@@ -161,7 +161,7 @@ func _process(delta: float) -> void:
 
 func _refresh() -> void:
 	_summary.text = "Earning %s" % Fmt.rate(Casino.income_per_second())
-	_detail.text = "%d properties  |  x%.2f income multiplier  |  %d achievements" % [
+	_detail.text = "%d properties  |  x%.2f income  |  %d achievements" % [
 		Casino.total_properties(),
 		GameManager.income_multiplier(),
 		Achievements.unlocked_count(),
