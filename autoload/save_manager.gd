@@ -193,6 +193,38 @@ func claim_offline_report() -> Dictionary:
 
 
 # ===========================================================================
+# WIPE / RESET
+# ===========================================================================
+
+## Completely wipes the current save and resets all runtime state.
+## Used by the "Reset Save" button (double-confirm required).
+func wipe_save() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
+	if FileAccess.file_exists(BACKUP_PATH):
+		DirAccess.remove_absolute(BACKUP_PATH)
+
+	# Reset every system to a fresh run.
+	GameManager.prestige_count = 0
+	GameManager.gold_chips = 0.0
+	GameManager.stats = GameManager.default_stats()
+	Upgrades.skill_levels.clear()
+	Upgrades.prestige_levels.clear()
+	Casino.owned.clear()
+	Achievements.unlocked_ids.clear()
+	Achievements._flags.clear()
+
+	GameManager.reset_run()
+	GameManager.broadcast()
+	Upgrades.changed.emit()
+	Casino.changed.emit()
+	Achievements.check_all()
+
+	# Write a clean save so the next launch does not restore the old one.
+	save_game(true)
+
+
+# ===========================================================================
 # SHUTDOWN
 # ===========================================================================
 
