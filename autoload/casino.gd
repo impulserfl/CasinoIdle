@@ -9,11 +9,7 @@ signal purchased(id: String, count: int)
 const GROWTH := 1.13
 const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]
 
-## Tuned so:
-##  - first property is free / instant income
-##  - ~30s to second tier, ~3-5 min to third
-##  - each tier is ~12-18x the previous cost with ~7-10x rate (healthy ROI)
-##  - late tiers still escalate but don't brick progression
+## Tuned for faster early game, smooth mid, readable late tiers.
 const GENERATORS: Array[Dictionary] = [
 	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 15.0,     "rate": 1.5},
 	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 120.0,    "rate": 8.0},
@@ -30,11 +26,9 @@ const GENERATORS: Array[Dictionary] = [
 ]
 
 var owned: Dictionary = {}
-var _started := false
 
 
 func _ready() -> void:
-	# Ensure a brand-new run always has something earning on second one.
 	call_deferred("_ensure_starter")
 
 
@@ -124,7 +118,7 @@ func buy(id: String, amount: int) -> bool:
 	var n := resolve_amount(id, amount)
 	if n <= 0:
 		return false
-	var price := Casino.cost_for(id, n)
+	var price := cost_for(id, n)
 	if not GameManager.spend_chips(price):
 		AudioManager.play_error()
 		return false
@@ -145,7 +139,6 @@ func is_unlocked(id: String) -> bool:
 		return true
 	if count(id) > 0:
 		return true
-	# Unlock next tier once you've earned ~15% of its base cost lifetime.
 	var lifetime := float(GameManager.stats.get("lifetime_chips_earned", 0.0))
 	return lifetime >= float(d["cost"]) * 0.15
 
@@ -160,7 +153,6 @@ func unlocked_generators() -> Array[Dictionary]:
 
 func reset() -> void:
 	owned.clear()
-	# Prestige still grants a free starter so you never sit at 0 income.
 	owned["penny_slots"] = 1
 	changed.emit()
 
