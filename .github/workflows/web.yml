@@ -47,69 +47,40 @@ jobs:
           mv templates/* "$TARGET/"
           ls "$TARGET" | head
 
-      - name: Build bundled fallback fonts
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          mkdir -p assets/fonts
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-noto-color-emoji fonts-noto-core
-          python3 -m pip install --quiet fonttools
-          UNI=$(python3 tools/emoji_codepoints.py || echo "")
-          emoji_src=$(find /usr/share/fonts -iname 'NotoColorEmoji*.ttf' | head -1 || true)
-          sym_src=$(find /usr/share/fonts -iname 'NotoSansSymbols2*.ttf' | head -1 || true)
-          if [ -n "${emoji_src:-}" ] && [ -n "$UNI" ]; then
-            pyftsubset "$emoji_src" --unicodes="$UNI" --output-file=assets/fonts/emoji_fallback.ttf || true
-          fi
-          if [ -n "${sym_src:-}" ] && [ -n "$UNI" ]; then
-            pyftsubset "$sym_src" --unicodes="$UNI" --output-file=assets/fonts/symbols_fallback.ttf || true
-          fi
-          ls -la assets/fonts/ || true
-
-      - name: Validate bundled fonts
-        run: |
-          set -uo pipefail
-          shopt -s nullglob
-          for f in assets/fonts/*.ttf; do
-            SZ=$(stat -c%s "$f")
-            if [ "$SZ" -lt 1200 ]; then rm -f "$f"; fi
-          done
-
-      - name: Verify balance tables
-        run: python3 tools/verify_balance.py
-
       - name: Import project
         run: |
           godot --headless --path . --import 2>&1 | tail -40 || true
           godot --headless --path . --import 2>&1 | tail -40 || true
 
-      # Advisory only. Isolated --check-only cannot resolve class_name bases
-      # cleanly and produces cascading false positives. The smoke test below
-      # loads the real project and is the actual correctness gate.
-      - name: Parse-check every script
-        continue-on-error: true
+      - name: Boot check (main scene loads)
         run: |
           set -uo pipefail
-          while IFS= read -r f; do
-            rel="res://${f#./}"
-            out=$(godot --headless --path . --check-only --script "$rel" 2>&1 || true)
-            if printf '%s\n' "$out" | grep -qE "Parse Error|Compile Error"; then
-              echo "--- ${f#./} ---"
-              printf '%s\n' "$out" | grep -E "Parse Error|Compile Error|at:" | head -8
-            fi
-          done < <(find . -name '*.gd' -not -path './.godot/*' | sort)
-          echo "parse-check finished (advisory)"
-
-      - name: Smoke test (headless run of the real main scene)
-        run: |
-          set -uo pipefail
-          godot --headless --path . --quit-after 600 2>&1 | tee run.log || true
-          echo "----- scanning for script errors -----"
-          if grep -nE "SCRIPT ERROR|Parse Error|Nonexistent function|Invalid call|Invalid access|Invalid get index|Invalid set index|Cannot call method|Trying to assign" run.log; then
-            echo "::error::Godot reported script errors during the headless run"
+          godot --headless --path . --quit-after 30 2>&1 | tee boot.log || true
+          if grep -nE "SCRIPT ERROR|Parse Error|Compile Error|Failed to load" boot.log; then
+            echo "::error::the main scene does not load"
             exit 1
           fi
-          echo "no script errors"
+          echo "main scene loads"
+
+      # The real gate. Runs the balance audit (every table's RTP and loss rate
+      # re-derived from its own constants), checks every icon the data tables
+      # name resolves to a sprite, then plays six rounds at all eighteen
+      # tables. Replaces the old Python verifier, which covered four tables --
+      # every table that had drifted was one it never looked at.
+      - name: Balance audit, icon check and table self-test
+        run: |
+          set -uo pipefail
+          godot --headless --path . --selftest 2>&1 | tee selftest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::selftest exited $status"
+            exit 1
+          fi
+          if grep -nE "SCRIPT ERROR|Parse Error|Compile Error|\[FAIL\]|ICON ERROR|Nonexistent function|Invalid call|Invalid access|Invalid get index|Invalid set index|Cannot call method|Trying to assign" selftest.log; then
+            echo "::error::selftest reported failures"
+            exit 1
+          fi
+          grep -c "\[OK  \]" selftest.log | xargs echo "balance checks passed:"
 
       - name: Verify the save round-trip actually happened
         run: |

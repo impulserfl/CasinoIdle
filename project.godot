@@ -7,15 +7,14 @@ config_version=5
 [application]
 
 config/name="CasinoIdle"
-config/description="Incremental idle casino sim: run a casino floor for passive income, gamble across 18 tables for EXP and jackpots, prestige for permanent bonuses."
-config/version="0.5.2"
+config/description="Incremental idle casino sim: run a casino floor for passive income, gamble across 18 verified-odds tables for EXP and jackpots, prestige for permanent bonuses."
+config/version="0.6.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
-FontSetup="*res://autoload/font_setup.gd"
 AudioManager="*res://autoload/audio_manager.gd"
 Settings="*res://autoload/settings.gd"
 GameManager="*res://autoload/game_manager.gd"
@@ -34,8 +33,20 @@ window/size/mode=2
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[importer_defaults]
+
+; The icon set ships at 256px and is drawn as small as 20px in dense rows.
+; Without mipmaps that downscale shimmers badly, so generate them by default
+; rather than committing a .import file per sprite.
+texture={
+"compress/mode": 0,
+"mipmaps/generate": true,
+"process/fix_alpha_border": true
+}
+
 [rendering]
 
 renderer/rendering_method="forward_plus"
 renderer/rendering_method.web="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/anisotropic_filtering_level=2

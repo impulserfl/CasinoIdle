@@ -24,11 +24,6 @@ Thumbs.db
 *.swp
 *~
 
-# Emoji fallback font: fetched by CI at build time, not committed (see
-# autoload/font_setup.gd). Desktop falls back to system emoji fonts.
-assets/fonts/*.ttf
-assets/fonts/*.otf
-
 # Builds / exports
 build/
 builds/

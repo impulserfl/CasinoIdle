@@ -1,44 +1,78 @@
 extends Minigame
 
-## Simplified baccarat: bet Player, Banker, or Tie.
-## Standard-ish odds with house edge. RTP ≈ 94% on Player/Banker.
+## Simplified baccarat: back Player, Banker or Tie.
+##
+## Two cards a side, totals mod 10, no third-card rules. That symmetry is worth
+## being careful about — with Player paying a true 1:1 (a 2.0x total return)
+## and ties returning the stake, this table is *exactly* fair, 100.00% RTP, and
+## was an unlimited free EXP farm. Real baccarat's edge comes from the drawing
+## rules this model does not have, so the edge is priced into the payouts:
+##
+##   P(tie) = 0.102552,  P(player) = P(banker) = 0.448724
+##   player/banker pay 1.95x -> 0.448724 * 1.95 + 0.102552 = 97.7564%
+##   tie pays 9.5323x       -> 0.102552 * 9.5323           = 97.7564%
+##
+## Every bet is priced to the same return, so the choice is volatility only.
 
-const RANKS := ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-const VALS := [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0]
+const CARD_VALUES: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0]
+const SIDE_PAYS := 1.95
+const TIE_PAYS := 9.5323
+const SIDE_LOSS_RATE := 0.448724
+const TIE_LOSS_RATE := 0.897448
 
 var _bet_on := "player"
-var _player_label: Label
-var _banker_label: Label
-var _btns: Dictionary = {}
+var _player_row: HBoxContainer
+var _banker_row: HBoxContainer
+var _player_total: Label
+var _banker_total: Label
+var _buttons: Dictionary = {}
 
 
 func _init() -> void:
 	game_id = "baccarat"
 	game_name = "Baccarat"
-	game_icon = "🎴"
-	base_rtp = 0.94
+	game_icon = "game_baccarat"
+	base_rtp = 0.977564
+	rules_text = "Closest to nine wins. Lowest house edge in the game at 2.24%."
 
 
 func _build_board(container: VBoxContainer) -> void:
-	var panel := UIKit.panel(UIKit.PANEL_HI, 12, 2)
+	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 2)
 	var col := UIKit.vbox(8)
-	_player_label = UIKit.label("Player: —", 22, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	_banker_label = UIKit.label("Banker: —", 22, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(_player_label)
-	col.add_child(_banker_label)
+
+	var ph := UIKit.hbox(8)
+	ph.add_child(UIKit.label("Player", 13, UIKit.DIM))
+	ph.add_child(UIKit.spacer())
+	_player_total = UIKit.label("", 15, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	ph.add_child(_player_total)
+	col.add_child(ph)
+	_player_row = UIKit.hbox(6)
+	_player_row.custom_minimum_size = Vector2(0, 84)
+	col.add_child(_player_row)
+
+	col.add_child(UIKit.separator())
+
+	var bh := UIKit.hbox(8)
+	bh.add_child(UIKit.label("Banker", 13, UIKit.DIM))
+	bh.add_child(UIKit.spacer())
+	_banker_total = UIKit.label("", 15, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	bh.add_child(_banker_total)
+	col.add_child(bh)
+	_banker_row = UIKit.hbox(6)
+	_banker_row.custom_minimum_size = Vector2(0, 84)
+	col.add_child(_banker_row)
+
 	panel.add_child(col)
 	container.add_child(panel)
 
-	var row := UIKit.hbox(10)
+	var row := UIKit.segmented(
+		["player", "banker", "tie"],
+		["PLAYER\n1.95x", "BANKER\n1.95x", "TIE\n9.53x"],
+		_buttons, UIKit.GOLD, 130, 52)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	for e in [["player", "PLAYER 1:1"], ["banker", "BANKER 0.95:1"], ["tie", "TIE 8:1"]]:
-		var b := UIKit.button(String(e[1]), 14)
-		b.custom_minimum_size = Vector2(130, 40)
-		b.pressed.connect(_select.bind(String(e[0])))
-		_btns[String(e[0])] = b
-		row.add_child(b)
+	for id in _buttons:
+		_buttons[id].pressed.connect(_select.bind(String(id)))
 	container.add_child(row)
-	container.add_child(UIKit.wrapped("Closest to 9 wins. Banker pays 0.95:1. Tie is rare.", 12, UIKit.DIM))
 	_refresh()
 
 
@@ -49,57 +83,73 @@ func _select(s: String) -> void:
 
 
 func _refresh() -> void:
-	for k in _btns:
-		_btns[k].add_theme_color_override("font_color", UIKit.GOLD if k == _bet_on else UIKit.TEXT)
+	UIKit.segmented_select(_buttons, _bet_on, UIKit.GOLD)
 
 
-func _card() -> int:
-	return VALS[randi() % VALS.size()]
+func _deal_hand() -> Array:
+	return [randi() % 13, randi() % 13]
 
 
-func _hand() -> int:
-	return (_card() + _card()) % 10
+func _hand_total(cards: Array) -> int:
+	var t := 0
+	for rank in cards:
+		t += CARD_VALUES[int(rank)]
+	return t % 10
+
+
+func _render(row: HBoxContainer, cards: Array) -> void:
+	for child in row.get_children():
+		row.remove_child(child)
+		child.queue_free()
+	for rank in cards:
+		var c := UIKit.card(56, 78)
+		UIKit.set_card(c, int(rank), randi() % 4)
+		row.add_child(c)
 
 
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
+
 	var staked := bet
 	set_result("Dealing...", UIKit.DIM)
 	await wait(0.25)
 	if not is_inside_tree():
 		return
-	var p := _hand()
-	var b := _hand()
-	_player_label.text = "Player: %d" % p
-	_banker_label.text = "Banker: %d" % b
-	FX.pulse(_player_label, 1.1, 0.15)
 
-	var payout := 0.0
-	var won := false
+	var player := _deal_hand()
+	var banker := _deal_hand()
+	var p := _hand_total(player)
+	var b := _hand_total(banker)
+	_render(_player_row, player)
+	_render(_banker_row, banker)
+	_player_total.text = str(p)
+	_banker_total.text = str(b)
+	FX.pulse(_player_row, 1.06, 0.15)
+
+	var loss_rate := TIE_LOSS_RATE if _bet_on == "tie" else SIDE_LOSS_RATE
+
 	if p == b:
 		if _bet_on == "tie":
-			payout = staked * 9.0
-			won = true
+			var tie_payout := staked * TIE_PAYS
+			finish_round(tie_payout, loss_rate, true)
+			set_result("Tie pays  +%s" % Fmt.chips(tie_payout), UIKit.GOLD, "trophy")
+			celebrate(tie_payout, TIE_PAYS)
+			if Settings.stop_auto_on_jackpot:
+				stop_auto()
 		else:
-			GameManager.add_chips(staked, false)
-			finish_round(0.0, 1.0, false)
-			set_result("Tie — stake returned.", UIKit.BLUE)
-			AudioManager.play_refund()
-			return
-	elif p > b and _bet_on == "player":
-		payout = staked * 2.0
-		won = true
-	elif b > p and _bet_on == "banker":
-		payout = staked * 1.95
-		won = true
+			# A tie is a push for Player and Banker, not a loss.
+			settle_push("Tie - stake returned.")
+		return
 
-	var loss_p := 0.52 if _bet_on != "tie" else 0.90
-	var credited := finish_round(payout, loss_p, false)
+	var won := (p > b and _bet_on == "player") or (b > p and _bet_on == "banker")
+	var payout := staked * SIDE_PAYS if won else 0.0
+	var credited := finish_round(payout, loss_rate, false)
+
 	if won:
-		set_result("Win!  +%s" % Fmt.chips(payout), UIKit.GREEN)
-		celebrate(payout, payout / staked)
+		set_result("%s wins  +%s" % [_bet_on.capitalize(), Fmt.chips(payout)], UIKit.GREEN, "check")
+		celebrate(payout, SIDE_PAYS)
 	elif credited <= 0.0:
-		set_result("No win.", UIKit.DIM)
+		set_result("%s wins - no bet." % ("Player" if p > b else "Banker"), UIKit.DIM)

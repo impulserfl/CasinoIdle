@@ -1,18 +1,23 @@
 extends Minigame
 
-## Carnival-style money wheel. Pick a segment color/value and spin.
-## Weighted segments; rarer numbers pay more. RTP ≈ 92%.
+## Carnival money wheel. Pick a segment; the wheel decides.
+##
+## Each segment's payout is derived from its own probability rather than picked
+## by eye: pays = base_rtp / P(segment). That makes every segment worth exactly
+## 92%, so the choice is variance only. The old table used the segment's face
+## value as the multiplier, which meant the common "1" segment returned the
+## stake and nothing more (40% RTP) while "10" and "20" were exactly break-even.
 
 const SEGMENTS: Array[Dictionary] = [
-	{"label": "1",  "mult": 1.0,  "weight": 24, "id": "1"},
-	{"label": "2",  "mult": 2.0,  "weight": 16, "id": "2"},
-	{"label": "5",  "mult": 5.0,  "weight": 10, "id": "5"},
-	{"label": "10", "mult": 10.0, "weight": 6,  "id": "10"},
-	{"label": "20", "mult": 20.0, "weight": 3,  "id": "20"},
-	{"label": "40", "mult": 40.0, "weight": 1,  "id": "40"},
+	{"id": "a", "weight": 24, "accent": "green"},
+	{"id": "b", "weight": 16, "accent": "blue"},
+	{"id": "c", "weight": 10, "accent": "cyan"},
+	{"id": "d", "weight": 6,  "accent": "purple"},
+	{"id": "e", "weight": 3,  "accent": "orange"},
+	{"id": "f", "weight": 1,  "accent": "gold"},
 ]
 
-var _pick := "1"
+var _pick := "a"
 var _wheel_label: Label
 var _buttons: Dictionary = {}
 
@@ -20,29 +25,69 @@ var _buttons: Dictionary = {}
 func _init() -> void:
 	game_id = "money_wheel"
 	game_name = "Money Wheel"
-	game_icon = "🎡"
+	game_icon = "game_wheel"
 	base_rtp = 0.92
+	rules_text = "Every segment is priced to the same 92% return."
+
+
+func _total_weight() -> float:
+	var t := 0.0
+	for s in SEGMENTS:
+		t += float(s["weight"])
+	return t
+
+
+func _probability(id: String) -> float:
+	for s in SEGMENTS:
+		if String(s["id"]) == id:
+			return float(s["weight"]) / _total_weight()
+	return 0.0
+
+
+func pays_for(id: String) -> float:
+	var p := _probability(id)
+	if p <= 0.0:
+		return 0.0
+	return base_rtp / p
+
+
+func _accent_of(name: String) -> Color:
+	match name:
+		"gold":
+			return UIKit.GOLD
+		"orange":
+			return UIKit.ORANGE
+		"purple":
+			return UIKit.PURPLE
+		"cyan":
+			return UIKit.CYAN
+		"blue":
+			return UIKit.BLUE
+	return UIKit.GREEN
 
 
 func _build_board(container: VBoxContainer) -> void:
 	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 2)
-	_wheel_label = UIKit.label("—", 56, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	panel.add_child(_wheel_label)
+	var col := UIKit.vbox(6)
+	col.add_child(UIKit.icon("game_wheel", 56))
+	_wheel_label = UIKit.numeral("-", 44, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	_wheel_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(_wheel_label)
+	panel.add_child(col)
 	container.add_child(panel)
 
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	var grid := UIKit.grid(3, 8, 8)
 	for s in SEGMENTS:
 		var id := String(s["id"])
-		var b := UIKit.button("%s  (x%s)" % [s["label"], Fmt.chips(float(s["mult"]))], 15)
-		b.custom_minimum_size = Vector2(120, 42)
+		var pays := pays_for(id)
+		var b := UIKit.button("%sx\n1 in %.1f" % [Fmt.chips(pays), 1.0 / _probability(id)],
+			15, _accent_of(String(s["accent"])))
+		b.custom_minimum_size = Vector2(0, 52)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(_select.bind(id))
 		_buttons[id] = b
 		grid.add_child(b)
 	container.add_child(grid)
-	container.add_child(UIKit.wrapped("Bet on a number. The wheel decides.", 12, UIKit.DIM))
 	_refresh()
 
 
@@ -53,63 +98,51 @@ func _select(id: String) -> void:
 
 
 func _refresh() -> void:
-	for id in _buttons:
-		var b: Button = _buttons[id]
-		b.add_theme_color_override("font_color", UIKit.GOLD if id == _pick else UIKit.TEXT)
+	UIKit.segmented_select(_buttons, _pick, UIKit.GOLD)
 
 
-func _spin_result() -> Dictionary:
+func _spin() -> String:
 	var entries: Array = []
 	for s in SEGMENTS:
-		entries.append([s, s["weight"]])
-	return weighted_pick(entries)
+		entries.append([String(s["id"]), s["weight"]])
+	return String(weighted_pick(entries))
 
 
-func _segment(id: String) -> Dictionary:
-	for s in SEGMENTS:
-		if String(s["id"]) == id:
-			return s
-	return SEGMENTS[0]
+func _label_for(id: String) -> String:
+	return "%sx" % Fmt.chips(pays_for(id))
 
 
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
 
 	var staked := bet
-	var chosen := _segment(_pick)
+	var pays := pays_for(_pick)
 	set_result("Spinning...", UIKit.DIM)
 
 	var delay := 0.04
 	for i in range(18):
-		var temp: Dictionary = _spin_result()
-		_wheel_label.text = String(temp["label"])
+		_wheel_label.text = _label_for(_spin())
 		await wait(delay)
 		if not is_inside_tree():
 			return
 		delay *= 1.1
 
-	var result: Dictionary = _spin_result()
-	_wheel_label.text = String(result["label"])
+	var landed := _spin()
+	_wheel_label.text = _label_for(landed)
 	FX.pulse(_wheel_label, 1.2, 0.25)
 
-	var won := String(result["id"]) == _pick
-	var mult: float = float(chosen["mult"])
-	var payout := staked * mult if won else 0.0
-	# rough P(win) from weights
-	var total_w := 0.0
-	var pick_w := 0.0
-	for s in SEGMENTS:
-		total_w += float(s["weight"])
-		if String(s["id"]) == _pick:
-			pick_w = float(s["weight"])
-	var loss_p := 1.0 - (pick_w / total_w)
+	var won := landed == _pick
+	var payout := staked * pays if won else 0.0
+	var loss_probability := 1.0 - _probability(_pick)
+	var credited := finish_round(payout, loss_probability, pays >= 18.0 and won)
 
-	var credited := finish_round(payout, loss_p, mult >= 20.0)
 	if won:
-		set_result("Hit %s!  +%s" % [result["label"], Fmt.chips(payout)], UIKit.GREEN)
-		celebrate(payout, mult)
+		set_result("Hit  +%s" % Fmt.chips(payout), UIKit.tier_color(pays), "check")
+		celebrate(payout, pays)
+		if pays >= 18.0 and Settings.stop_auto_on_jackpot:
+			stop_auto()
 	elif credited <= 0.0:
-		set_result("Landed on %s." % result["label"], UIKit.DIM)
+		set_result("Landed on %s." % _label_for(landed), UIKit.DIM)

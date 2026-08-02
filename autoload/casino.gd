@@ -1,34 +1,41 @@
 extends Node
 
-## Idle layer: properties earn chips every second. Gambling is never the chip source.
+## The idle layer: properties earn chips every second. This is the only source
+## of chips in the game — the tables convert chips into EXP and jackpots at a
+## known, verified loss.
 
 signal changed()
 signal purchased(id: String, count: int)
 
-## Slightly gentler than classic 1.15 so mid-game bulk buys stay rewarding.
-const GROWTH := 1.13
+## Steeper than the classic 1.15. The floor used to compound so fast that a
+## first prestige landed inside two minutes; the cost curve, not the prestige
+## requirement, is what actually governs that.
+const BASE_GROWTH := 1.22
+const MIN_GROWTH := 1.10
 const BUY_AMOUNTS: Array[int] = [1, 10, 25, -1]
 
-## Tuned for faster early game, smooth mid, readable late tiers.
 const GENERATORS: Array[Dictionary] = [
-	{"id": "penny_slots",  "name": "Penny Slots",       "icon": "🎰", "cost": 15.0,     "rate": 1.5},
-	{"id": "blackjack",    "name": "Blackjack Table",   "icon": "🂡", "cost": 120.0,    "rate": 8.0},
-	{"id": "roulette",     "name": "Roulette Wheel",    "icon": "🎡", "cost": 900.0,    "rate": 42.0},
-	{"id": "poker",        "name": "Poker Room",        "icon": "♠️", "cost": 7500.0,   "rate": 220.0},
-	{"id": "craps",        "name": "Craps Pit",         "icon": "🎲", "cost": 60000.0,  "rate": 1200.0},
-	{"id": "vip",          "name": "VIP Lounge",        "icon": "🥂", "cost": 5.0e5,    "rate": 7000.0},
-	{"id": "sportsbook",   "name": "Sports Book",       "icon": "🏇", "cost": 4.5e6,    "rate": 45000.0},
-	{"id": "highroller",   "name": "High-Roller Suite", "icon": "💼", "cost": 4.0e7,    "rate": 2.8e5},
-	{"id": "sky",          "name": "Sky Casino",        "icon": "🌆", "cost": 3.5e8,    "rate": 1.8e6},
-	{"id": "cruiser",      "name": "Casino Cruiser",    "icon": "🛳️", "cost": 3.2e9,    "rate": 1.2e7},
-	{"id": "resort",       "name": "Island Resort",     "icon": "🏝️", "cost": 3.0e10,   "rate": 8.5e7},
-	{"id": "orbital",      "name": "Orbital Casino",    "icon": "🛰️", "cost": 3.0e11,   "rate": 6.5e8},
+	{"id": "penny_slots", "name": "Penny Slots",       "icon": "prop_pennyslots",  "cost": 20.0,    "rate": 1.0},
+	{"id": "blackjack",   "name": "Blackjack Table",   "icon": "prop_blackjack",   "cost": 180.0,   "rate": 6.5},
+	{"id": "roulette",    "name": "Roulette Wheel",    "icon": "prop_roulette",    "cost": 1600.0,  "rate": 42.0},
+	{"id": "poker",       "name": "Poker Room",        "icon": "prop_poker",       "cost": 15000.0, "rate": 285.0},
+	{"id": "craps",       "name": "Craps Pit",         "icon": "prop_craps",       "cost": 130000.0, "rate": 1750.0},
+	{"id": "vip",         "name": "VIP Lounge",        "icon": "prop_vip",         "cost": 1.2e6,   "rate": 11500.0},
+	{"id": "sportsbook",  "name": "Sports Book",       "icon": "prop_sportsbook",  "cost": 1.1e7,   "rate": 75000.0},
+	{"id": "highroller",  "name": "High-Roller Suite", "icon": "prop_highroller",  "cost": 1.0e8,   "rate": 4.9e5},
+	{"id": "sky",         "name": "Sky Casino",        "icon": "prop_sky",         "cost": 9.5e8,   "rate": 3.3e6},
+	{"id": "cruiser",     "name": "Casino Cruiser",    "icon": "prop_cruiser",     "cost": 9.0e9,   "rate": 2.2e7},
+	{"id": "resort",      "name": "Island Resort",     "icon": "prop_resort",      "cost": 8.5e10,  "rate": 1.5e8},
+	{"id": "orbital",     "name": "Orbital Casino",    "icon": "prop_orbital",     "cost": 8.0e11,  "rate": 1.0e9},
 ]
 
 var owned: Dictionary = {}
+var _index: Dictionary = {}
 
 
 func _ready() -> void:
+	for d in GENERATORS:
+		_index[String(d["id"])] = d
 	call_deferred("_ensure_starter")
 
 
@@ -39,10 +46,7 @@ func _ensure_starter() -> void:
 
 
 func generator_def(id: String) -> Dictionary:
-	for d in GENERATORS:
-		if d["id"] == id:
-			return d
-	return {}
+	return _index.get(id, {})
 
 
 func count(id: String) -> int:
@@ -54,6 +58,13 @@ func total_properties() -> int:
 	for id in owned:
 		n += int(owned[id])
 	return n
+
+
+## The Architect prestige rank flattens the cost curve slightly. It is the
+## single most powerful upgrade in the game, which is why it is capped at 6 and
+## priced accordingly.
+func growth() -> float:
+	return maxf(MIN_GROWTH, BASE_GROWTH - 0.002 * float(Upgrades.prestige_rank("architect")))
 
 
 func base_income() -> float:
@@ -71,7 +82,8 @@ func income_from(id: String) -> float:
 	var d := generator_def(id)
 	if d.is_empty():
 		return 0.0
-	return float(count(id)) * float(d["rate"]) * GameManager.income_multiplier() * Events.income_event_multiplier()
+	return float(count(id)) * float(d["rate"]) * GameManager.income_multiplier() \
+		* Events.income_event_multiplier()
 
 
 func _process(delta: float) -> void:
@@ -84,24 +96,25 @@ func cost_for(id: String, amount: int) -> float:
 	var d := generator_def(id)
 	if d.is_empty() or amount <= 0:
 		return INF
+	var g := growth()
 	var base := float(d["cost"]) * (1.0 - GameManager.cost_discount())
-	var start := pow(GROWTH, float(count(id)))
-	return base * start * (pow(GROWTH, float(amount)) - 1.0) / (GROWTH - 1.0)
+	var start := pow(g, float(count(id)))
+	return base * start * (pow(g, float(amount)) - 1.0) / (g - 1.0)
 
 
 func max_affordable(id: String) -> int:
 	var d := generator_def(id)
 	if d.is_empty():
 		return 0
+	var g := growth()
 	var base := float(d["cost"]) * (1.0 - GameManager.cost_discount())
-	var unit := base * pow(GROWTH, float(count(id)))
+	var unit := base * pow(g, float(count(id)))
 	if unit <= 0.0:
 		return 0
-	var ratio := GameManager.chips * (GROWTH - 1.0) / unit + 1.0
+	var ratio := GameManager.chips * (g - 1.0) / unit + 1.0
 	if ratio <= 1.0:
 		return 0
-	var n := int(floorf(log(ratio) / log(GROWTH)))
-	return maxi(n, 0)
+	return maxi(int(floorf(log(ratio) / log(g))), 0)
 
 
 func resolve_amount(id: String, requested: int) -> int:
@@ -131,16 +144,24 @@ func buy(id: String, amount: int) -> bool:
 	return true
 
 
+## Seconds for one more unit to pay for itself at the current multiplier.
+func payback_seconds(id: String, amount: int) -> float:
+	var d := generator_def(id)
+	if d.is_empty() or amount <= 0:
+		return 0.0
+	var rate := float(d["rate"]) * float(amount) * GameManager.income_multiplier()
+	if rate <= 0.0:
+		return 0.0
+	return cost_for(id, amount) / rate
+
+
 func is_unlocked(id: String) -> bool:
 	var d := generator_def(id)
 	if d.is_empty():
 		return false
-	if String(d["id"]) == String(GENERATORS[0]["id"]):
+	if id == String(GENERATORS[0]["id"]) or count(id) > 0:
 		return true
-	if count(id) > 0:
-		return true
-	var lifetime := float(GameManager.stats.get("lifetime_chips_earned", 0.0))
-	return lifetime >= float(d["cost"]) * 0.15
+	return float(GameManager.stats.get("lifetime_chips_earned", 0.0)) >= float(d["cost"]) * 0.15
 
 
 func unlocked_generators() -> Array[Dictionary]:
@@ -149,6 +170,17 @@ func unlocked_generators() -> Array[Dictionary]:
 		if is_unlocked(String(d["id"])):
 			out.append(d)
 	return out
+
+
+## The next locked tier and how close the player is to seeing it, so the floor
+## panel can show something to aim at instead of just ending.
+func next_locked() -> Dictionary:
+	for d in GENERATORS:
+		if not is_unlocked(String(d["id"])):
+			var need := float(d["cost"]) * 0.15
+			var have := float(GameManager.stats.get("lifetime_chips_earned", 0.0))
+			return {"def": d, "need": need, "progress": clampf(have / maxf(need, 1.0), 0.0, 1.0)}
+	return {}
 
 
 func reset() -> void:

@@ -37,8 +37,9 @@ var _outside_buttons: Dictionary = {}
 func _init() -> void:
 	game_id = "roulette"
 	game_name = "Roulette"
-	game_icon = "🎡"
+	game_icon = "game_roulette"
 	base_rtp = 36.0 / 37.0
+	rules_text = "Single zero. All ten bet types pay exactly 36/37 - the best odds in the house."
 
 
 static func is_red(n: int) -> bool:
@@ -54,7 +55,7 @@ static func pocket_color(n: int) -> Color:
 func _build_board(container: VBoxContainer) -> void:
 	_wheel_panel = UIKit.panel(UIKit.PANEL_HI, 14, 2)
 	_wheel_panel.custom_minimum_size = Vector2(0, 96)
-	_wheel_label = UIKit.label("--", 56, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
+	_wheel_label = UIKit.numeral("-", 56, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	_wheel_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_wheel_panel.add_child(_wheel_label)
 	container.add_child(_wheel_panel)
@@ -135,7 +136,7 @@ func _refresh_selection() -> void:
 		nb.add_theme_color_override("font_color", UIKit.GOLD if picked else UIKit.TEXT)
 
 	if _selection_label != null:
-		_selection_label.text = "Betting: %s   -   pays %d:1   -   %s" % [
+		_selection_label.text = "Betting %s  -  pays %d:1  -  wins %s of the time" % [
 			_bet_display_name(), _bet_odds(), Fmt.percent(_bet_win_probability(), 1),
 		]
 
@@ -202,7 +203,7 @@ func _show_pocket(n: int) -> void:
 
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
 
@@ -233,7 +234,9 @@ func play_once() -> void:
 
 	if won:
 		var multiplier := payout / staked
-		set_result("%d wins!  +%s" % [result, Fmt.chips(payout)], UIKit.GREEN)
+		set_result("%d wins  +%s" % [result, Fmt.chips(payout)], UIKit.GREEN, "check")
 		celebrate(payout, multiplier)
+		if multiplier >= 30.0 and Settings.stop_auto_on_jackpot:
+			stop_auto()
 	elif credited <= 0.0:
-		set_result("%d -- no win." % result, UIKit.DIM)
+		set_result("%d - no win." % result, UIKit.DIM)

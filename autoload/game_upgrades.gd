@@ -1,168 +1,208 @@
 extends Node
 
-## Per-table upgrades. Each minigame has ≥5 dedicated ranks bought with skill points.
-## Wiped on prestige (same as Skills).
+## Per-table upgrades. Every table has six, bought with skill points.
+## Wiped on prestige, exactly like the skill tree.
+##
+## Only the `rtp` archetype can move a table's returns, and it feeds the same
+## capped budget as every other RTP source (see Minigame.rtp_budget). The old
+## `fortune` archetype used to add refund chance *outside* that cap, which put
+## every table over 100% RTP once it was maxed; it is now `solace`, which pays
+## in EXP instead of chips and therefore cannot break the economy.
 
 signal changed()
 
-## Built at runtime (not const) — GDScript forbids non-literal const helpers.
-var DEFS: Dictionary = {}
+## Archetype -> tuning. Shared by all eighteen tables so a rank always means
+## the same thing no matter which table bought it.
+const EFFECTS: Dictionary = {
+	"rtp":    {"max": 8,  "cost_base": 1, "cost_step": 1, "label": "+0.25% table RTP"},
+	"exp":    {"max": 10, "cost_base": 1, "cost_step": 1, "label": "+8% EXP here"},
+	"speed":  {"max": 6,  "cost_base": 1, "cost_step": 1, "label": "-6% round time"},
+	"bet":    {"max": 8,  "cost_base": 1, "cost_step": 1, "label": "+12% max bet"},
+	"solace": {"max": 6,  "cost_base": 2, "cost_step": 1, "label": "+18% EXP when you lose"},
+	"auto":   {"max": 6,  "cost_base": 2, "cost_step": 1, "label": "-5% auto-play delay"},
+}
+
+const RTP_PER_RANK := 0.0025
+const EXP_PER_RANK := 0.08
+const SPEED_PER_RANK := 0.06
+const BET_PER_RANK := 0.12
+const SOLACE_PER_RANK := 0.18
+const AUTO_PER_RANK := 0.05
+
+## game_id -> [[id, display name, icon, archetype], ...]
+## The ids are load-bearing: they are what lives in save files, so they keep
+## their original spelling even where the display name has moved on.
+const TABLE_UPGRADES: Dictionary = {
+	"slots": [
+		["reel_tension", "Reel Tension", "reel_bar", "rtp"],
+		["symbol_study", "Symbol Study", "exp", "exp"],
+		["fast_reels", "Fast Reels", "bolt", "speed"],
+		["high_limit_slots", "High Limit Slots", "chip_gold", "bet"],
+		["near_miss", "Near-Miss Sympathy", "moon", "solace"],
+		["reel_rhythm", "Reel Rhythm", "clock", "auto"],
+	],
+	"roulette": [
+		["wheel_bias", "Wheel Bias", "game_roulette", "rtp"],
+		["croupier_notes", "Croupier Notes", "exp", "exp"],
+		["quick_spin", "Quick Spin", "bolt", "speed"],
+		["vip_chip", "VIP Chip Stack", "chip_gold", "bet"],
+		["zero_cushion", "Zero Cushion", "moon", "solace"],
+		["rapid_croupier", "Rapid Croupier", "clock", "auto"],
+	],
+	"dice": [
+		["loaded_feel", "Loaded Feel", "game_dice", "rtp"],
+		["odds_tutor", "Odds Tutor", "exp", "exp"],
+		["snap_roll", "Snap Roll", "bolt", "speed"],
+		["high_stakes_dice", "High Stakes Dice", "chip_gold", "bet"],
+		["snake_shield", "Snake Shield", "moon", "solace"],
+		["dice_drill", "Dice Drill", "clock", "auto"],
+	],
+	"scratch": [
+		["lucky_ink", "Lucky Ink", "game_scratch", "rtp"],
+		["ticket_reader", "Ticket Reader", "exp", "exp"],
+		["quick_scratch", "Quick Scratch", "bolt", "speed"],
+		["bulk_buy", "Bulk Buy", "chip_gold", "bet"],
+		["consolation", "Consolation Prize", "moon", "solace"],
+		["book_of_tickets", "Book of Tickets", "clock", "auto"],
+	],
+	"higher_lower": [
+		["card_sense", "Card Sense", "suit_spade", "rtp"],
+		["memory_drill", "Memory Drill", "exp", "exp"],
+		["fast_deal_hl", "Fast Deal", "bolt", "speed"],
+		["raise_ladder", "Raise the Ladder", "chip_gold", "bet"],
+		["soft_land", "Soft Landing", "moon", "solace"],
+		["quick_cut", "Quick Cut", "clock", "auto"],
+	],
+	"blackjack": [
+		["basic_strategy", "Basic Strategy", "suit_spade", "rtp"],
+		["count_practice", "Count Practice", "exp", "exp"],
+		["fast_shoe", "Fast Shoe", "bolt", "speed"],
+		["table_min", "Table Minimum Up", "chip_gold", "bet"],
+		["insurance_pro", "Insurance Pro", "moon", "solace"],
+		["auto_shuffler", "Auto Shuffler", "clock", "auto"],
+	],
+	"plinko": [
+		["peg_polish", "Peg Polish", "ball", "rtp"],
+		["drop_study", "Drop Study", "exp", "exp"],
+		["gravity_boost", "Gravity Boost", "bolt", "speed"],
+		["multi_ball", "Multi-Ball Budget", "chip_gold", "bet"],
+		["side_pocket", "Side Pocket", "moon", "solace"],
+		["ball_feeder", "Ball Feeder", "clock", "auto"],
+	],
+	"coin_flip": [
+		["weighted_feel", "Weighted Feel", "chip_gold", "rtp"],
+		["call_practice", "Call Practice", "exp", "exp"],
+		["flick_wrist", "Flick of the Wrist", "bolt", "speed"],
+		["double_or", "Double-or Budget", "chip", "bet"],
+		["lucky_call", "Lucky Call", "moon", "solace"],
+		["fast_hands", "Fast Hands", "clock", "auto"],
+	],
+	"money_wheel": [
+		["spoke_tune", "Spoke Tune", "game_wheel", "rtp"],
+		["pointer_study", "Pointer Study", "exp", "exp"],
+		["spin_up", "Spin Up", "bolt", "speed"],
+		["grand_wheel", "Grand Wheel", "chip_gold", "bet"],
+		["banker_pity", "Banker's Pity", "moon", "solace"],
+		["wheel_servo", "Wheel Servo", "clock", "auto"],
+	],
+	"crash": [
+		["graph_edge", "Graph Edge", "game_crash", "rtp"],
+		["chart_reader", "Chart Reader", "exp", "exp"],
+		["fast_tick", "Fast Tick", "bolt", "speed"],
+		["moon_bag", "Moon Bag", "chip_gold", "bet"],
+		["soft_crash", "Soft Crash", "moon", "solace"],
+		["auto_cashout", "Auto Cash-Out", "clock", "auto"],
+	],
+	"keno": [
+		["ball_bias", "Ball Bias", "game_keno", "rtp"],
+		["number_nerd", "Number Nerd", "exp", "exp"],
+		["rapid_draw", "Rapid Draw", "bolt", "speed"],
+		["multi_spot", "Multi-Spot Budget", "chip_gold", "bet"],
+		["one_away", "One Away", "moon", "solace"],
+		["draw_machine", "Draw Machine", "clock", "auto"],
+	],
+	"baccarat": [
+		["shoe_edge", "Shoe Edge", "suit_diamond", "rtp"],
+		["pattern_watch", "Pattern Watch", "exp", "exp"],
+		["fast_deal_bacc", "Fast Deal", "bolt", "speed"],
+		["salon_prive", "Salon Prive", "chip_gold", "bet"],
+		["tie_cushion", "Tie Cushion", "moon", "solace"],
+		["shoe_loader", "Shoe Loader", "clock", "auto"],
+	],
+	"video_poker": [
+		["hold_guide", "Hold Guide", "suit_club", "rtp"],
+		["hand_coach", "Hand Coach", "exp", "exp"],
+		["fast_deal_vp", "Fast Deal", "bolt", "speed"],
+		["max_credits", "Max Credits", "chip_gold", "bet"],
+		["deuces_pity", "Deuces Pity", "moon", "solace"],
+		["quick_hold", "Quick Hold", "clock", "auto"],
+	],
+	"war": [
+		["rank_edge", "Rank Edge", "game_war", "rtp"],
+		["war_drills", "War Drills", "exp", "exp"],
+		["fast_war", "Fast War", "bolt", "speed"],
+		["ante_up", "Ante Up", "chip_gold", "bet"],
+		["surrender", "Soft Surrender", "moon", "solace"],
+		["field_promo", "Field Promotion", "clock", "auto"],
+	],
+	"coin_pusher": [
+		["shelf_angle", "Shelf Angle", "game_pusher", "rtp"],
+		["pusher_study", "Pusher Study", "exp", "exp"],
+		["fast_drop", "Fast Drop", "bolt", "speed"],
+		["coin_stack", "Coin Stack", "chip_gold", "bet"],
+		["ledge_save", "Ledge Save", "moon", "solace"],
+		["hopper_feed", "Hopper Feed", "clock", "auto"],
+	],
+	"claw": [
+		["grip_strength", "Grip Strength", "game_claw", "rtp"],
+		["prize_guide", "Prize Guide", "exp", "exp"],
+		["fast_arm", "Fast Arm", "bolt", "speed"],
+		["token_pile", "Token Pile", "chip_gold", "bet"],
+		["almost_had", "Almost Had It", "moon", "solace"],
+		["arm_servo", "Arm Servo", "clock", "auto"],
+	],
+	"darts": [
+		["steady_hand", "Steady Hand", "target", "rtp"],
+		["pub_lessons", "Pub Lessons", "exp", "exp"],
+		["quick_throw", "Quick Throw", "bolt", "speed"],
+		["match_stakes", "Match Stakes", "chip_gold", "bet"],
+		["wire_save", "Wire Save", "moon", "solace"],
+		["oche_rhythm", "Oche Rhythm", "clock", "auto"],
+	],
+	"fishing": [
+		["bait_quality", "Bait Quality", "game_fishing", "rtp"],
+		["angler_log", "Angler's Log", "exp", "exp"],
+		["fast_reel", "Fast Reel", "bolt", "speed"],
+		["charter_boat", "Charter Boat", "chip_gold", "bet"],
+		["catch_release", "Catch & Release", "moon", "solace"],
+		["second_rod", "Second Rod", "clock", "auto"],
+	],
+}
+
 var levels: Dictionary = {}
-
-
-func _ready() -> void:
-	if DEFS.is_empty():
-		DEFS = _build_defs()
-
-
-func _u(id: String, uname: String, icon: String, desc: String, effect: String, effect_label: String, max_rank: int, cost_base: int, cost_step: int) -> Dictionary:
-	return {
-		"id": id, "name": uname, "icon": icon, "desc": desc,
-		"effect": effect, "effect_label": effect_label,
-		"max": max_rank, "cost_base": cost_base, "cost_step": cost_step,
-	}
-
-
-func _build_defs() -> Dictionary:
-	return {
-		"slots": [
-			_u("reel_tension", "Reel Tension", "🎰", "Smoother stops.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("symbol_study", "Symbol Study", "📗", "More EXP per spin.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_reels", "Fast Reels", "⚡", "Faster spins.", "speed", "-6% spin time", 6, 1, 1),
-			_u("high_limit_slots", "High Limit Slots", "💎", "Bigger wagers.", "bet", "+12% max bet", 8, 1, 1),
-			_u("near_miss", "Near-Miss Sympathy", "🍀", "More refunds.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"roulette": [
-			_u("wheel_bias", "Wheel Bias", "🎡", "Tiny edge trim.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("croupier_notes", "Croupier Notes", "📝", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("quick_spin", "Quick Spin", "⏱️", "Faster spins.", "speed", "-6% spin time", 6, 1, 1),
-			_u("vip_chip", "VIP Chip Stack", "🪙", "Higher max bets.", "bet", "+12% max bet", 8, 1, 1),
-			_u("zero_cushion", "Zero Cushion", "🟢", "Better refunds.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"dice": [
-			_u("loaded_feel", "Loaded Feel", "🎲", "Friendlier dice.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("odds_tutor", "Odds Tutor", "📐", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("snap_roll", "Snap Roll", "⚡", "Faster rolls.", "speed", "-6% anim", 6, 1, 1),
-			_u("high_stakes_dice", "High Stakes Dice", "💰", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("snake_shield", "Snake Shield", "🛡️", "Refund buffer.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"scratch": [
-			_u("lucky_ink", "Lucky Ink", "🎫", "Kinder cards.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("ticket_reader", "Ticket Reader", "🔍", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("quick_scratch", "Quick Scratch", "✋", "Faster reveals.", "speed", "-6% anim", 6, 1, 1),
-			_u("bulk_buy", "Bulk Buy", "📦", "Bigger stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("consolation", "Consolation Prize", "🎁", "More refunds.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"higher_lower": [
-			_u("card_sense", "Card Sense", "🃏", "Slight edge.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("memory_drill", "Memory Drill", "🧠", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_deal_hl", "Fast Deal", "⚡", "Quicker flips.", "speed", "-6% anim", 6, 1, 1),
-			_u("raise_ladder", "Raise the Ladder", "📈", "Higher stake.", "bet", "+12% max bet", 8, 1, 1),
-			_u("soft_land", "Soft Landing", "🪂", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"blackjack": [
-			_u("basic_strategy", "Basic Strategy", "🂡", "Closer to optimal.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("count_practice", "Count Practice", "🧮", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_shoe", "Fast Shoe", "⏩", "Faster deals.", "speed", "-6% anim", 6, 1, 1),
-			_u("table_min", "Table Minimum Up", "💵", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("insurance_pro", "Insurance Pro", "🛡️", "Better refunds.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"plinko": [
-			_u("peg_polish", "Peg Polish", "🔵", "Kinder bounces.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("drop_study", "Drop Study", "📊", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("gravity_boost", "Gravity Boost", "⬇️", "Faster drops.", "speed", "-6% anim", 6, 1, 1),
-			_u("multi_ball", "Multi-Ball Budget", "🟡", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("side_pocket", "Side Pocket", "🧲", "Refund near-misses.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"coin_flip": [
-			_u("weighted_feel", "Weighted Feel", "🪙", "Friendlier coin.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("call_practice", "Call Practice", "📣", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("flick_wrist", "Flick Wrist", "🖐️", "Faster flips.", "speed", "-6% anim", 6, 1, 1),
-			_u("double_or", "Double-or Budget", "💰", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("lucky_call", "Lucky Call", "✨", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"money_wheel": [
-			_u("spoke_tune", "Spoke Tune", "🎯", "Slight lean.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("pointer_study", "Pointer Study", "📍", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("spin_up", "Spin Up", "🌪️", "Faster spins.", "speed", "-6% anim", 6, 1, 1),
-			_u("grand_wheel", "Grand Wheel", "💎", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("banker_pity", "Banker Pity", "🤝", "Refund buffer.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"crash": [
-			_u("graph_edge", "Graph Edge", "📈", "Slight edge.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("chart_reader", "Chart Reader", "📉", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_tick", "Fast Tick", "⏱️", "Faster rounds.", "speed", "-6% anim", 6, 1, 1),
-			_u("moon_bag", "Moon Bag", "🚀", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("soft_crash", "Soft Crash", "🛟", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"keno": [
-			_u("ball_bias", "Ball Bias", "🎱", "Kinder draws.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("number_nerd", "Number Nerd", "🔢", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("rapid_draw", "Rapid Draw", "⚡", "Faster draws.", "speed", "-6% anim", 6, 1, 1),
-			_u("multi_spot", "Multi-Spot Budget", "🎟️", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("one_away", "One Away", "🤞", "Refund near-misses.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"baccarat": [
-			_u("shoe_edge", "Shoe Edge", "🎴", "Tiny edge.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("pattern_watch", "Pattern Watch", "👁️", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_deal_bacc", "Fast Deal", "⏩", "Quicker hands.", "speed", "-6% anim", 6, 1, 1),
-			_u("salon_prive", "Salon Prive", "🥂", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("tie_cushion", "Tie Cushion", "🪢", "Refund buffer.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"video_poker": [
-			_u("hold_guide", "Hold Guide", "♠️", "Better deals.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("hand_coach", "Hand Coach", "📚", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_deal_vp", "Fast Deal", "⚡", "Quicker deals.", "speed", "-6% anim", 6, 1, 1),
-			_u("max_credits", "Max Credits", "💳", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("deuces_pity", "Deuces Pity", "🃏", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"war": [
-			_u("rank_edge", "Rank Edge", "⚔️", "Slight lean.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("war_drills", "War Drills", "🪖", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_war", "Fast War", "⚡", "Quicker flips.", "speed", "-6% anim", 6, 1, 1),
-			_u("ante_up", "Ante Up", "💰", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("surrender", "Soft Surrender", "🏳️", "Refund buffer.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"coin_pusher": [
-			_u("shelf_angle", "Shelf Angle", "🪙", "Better drops.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("pusher_study", "Pusher Study", "📖", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_drop", "Fast Drop", "⬇️", "Quicker cycles.", "speed", "-6% anim", 6, 1, 1),
-			_u("coin_stack", "Coin Stack", "🏦", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("ledge_save", "Ledge Save", "🧱", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"claw": [
-			_u("grip_strength", "Grip Strength", "🦾", "Better grabs.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("prize_guide", "Prize Guide", "🎁", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_arm", "Fast Arm", "⚡", "Quicker grabs.", "speed", "-6% anim", 6, 1, 1),
-			_u("token_pile", "Token Pile", "🪙", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("almost_had", "Almost Had It", "😅", "Refund near-misses.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"darts": [
-			_u("steady_hand", "Steady Hand", "🎯", "Better aim.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("pub_lessons", "Pub Lessons", "🍺", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("quick_throw", "Quick Throw", "💨", "Faster throws.", "speed", "-6% anim", 6, 1, 1),
-			_u("match_stakes", "Match Stakes", "💷", "Higher max bet.", "bet", "+12% max bet", 8, 1, 1),
-			_u("wire_save", "Wire Save", "🧵", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-		"fishing": [
-			_u("bait_quality", "Bait Quality", "🪱", "Better bites.", "rtp", "+0.25% RTP", 8, 1, 1),
-			_u("angler_log", "Angler Log", "📓", "More EXP.", "exp", "+8% EXP", 10, 1, 1),
-			_u("fast_reel", "Fast Reel", "🎣", "Quicker casts.", "speed", "-6% anim", 6, 1, 1),
-			_u("charter_boat", "Charter Boat", "🚤", "Higher stakes.", "bet", "+12% max bet", 8, 1, 1),
-			_u("catch_release", "Catch & Release", "🌊", "Refund cushion.", "fortune", "+1.5% refund", 6, 2, 1),
-		],
-	}
+var _defs_cache: Dictionary = {}
 
 
 func defs_for(game_id: String) -> Array:
-	if DEFS.is_empty():
-		DEFS = _build_defs()
-	return DEFS.get(game_id, [])
-
-
-func level(game_id: String, upgrade_id: String) -> int:
-	var g: Dictionary = levels.get(game_id, {})
-	return int(g.get(upgrade_id, 0))
+	if _defs_cache.has(game_id):
+		return _defs_cache[game_id]
+	var rows: Array = TABLE_UPGRADES.get(game_id, [])
+	var out: Array = []
+	for row in rows:
+		var archetype := String(row[3])
+		var eff: Dictionary = EFFECTS[archetype]
+		out.append({
+			"id": String(row[0]),
+			"name": String(row[1]),
+			"icon": String(row[2]),
+			"effect": archetype,
+			"effect_label": String(eff["label"]),
+			"max": int(eff["max"]),
+			"cost_base": int(eff["cost_base"]),
+			"cost_step": int(eff["cost_step"]),
+		})
+	_defs_cache[game_id] = out
+	return out
 
 
 func def_for(game_id: String, upgrade_id: String) -> Dictionary:
@@ -170,6 +210,11 @@ func def_for(game_id: String, upgrade_id: String) -> Dictionary:
 		if String(d["id"]) == upgrade_id:
 			return d
 	return {}
+
+
+func level(game_id: String, upgrade_id: String) -> int:
+	var g: Dictionary = levels.get(game_id, {})
+	return int(g.get(upgrade_id, 0))
 
 
 func cost(game_id: String, upgrade_id: String) -> int:
@@ -193,9 +238,7 @@ func buy(game_id: String, upgrade_id: String) -> bool:
 		return false
 	if not GameManager.spend_skill_points(cost(game_id, upgrade_id)):
 		return false
-	if not levels.has(game_id):
-		levels[game_id] = {}
-	var g: Dictionary = levels[game_id]
+	var g: Dictionary = levels.get(game_id, {})
 	g[upgrade_id] = level(game_id, upgrade_id) + 1
 	levels[game_id] = g
 	changed.emit()
@@ -203,37 +246,46 @@ func buy(game_id: String, upgrade_id: String) -> bool:
 	return true
 
 
-func _sum_effect(game_id: String, effect: String) -> float:
+func _sum(game_id: String, archetype: String) -> float:
 	var total := 0.0
 	for d in defs_for(game_id):
-		if String(d["effect"]) != effect:
-			continue
-		total += float(level(game_id, String(d["id"])))
+		if String(d["effect"]) == archetype:
+			total += float(level(game_id, String(d["id"])))
 	return total
 
 
 func rtp_bonus(game_id: String) -> float:
-	return 0.0025 * _sum_effect(game_id, "rtp")
+	return RTP_PER_RANK * _sum(game_id, "rtp")
 
 
 func exp_multiplier(game_id: String) -> float:
-	return 1.0 + 0.08 * _sum_effect(game_id, "exp")
+	return 1.0 + EXP_PER_RANK * _sum(game_id, "exp")
 
 
 func speed_multiplier(game_id: String) -> float:
-	return maxf(0.20, 1.0 - 0.06 * _sum_effect(game_id, "speed"))
+	return maxf(0.20, 1.0 - SPEED_PER_RANK * _sum(game_id, "speed"))
 
 
 func bet_multiplier(game_id: String) -> float:
-	return 1.0 + 0.12 * _sum_effect(game_id, "bet")
+	return 1.0 + BET_PER_RANK * _sum(game_id, "bet")
 
 
-func fortune_bonus(game_id: String) -> float:
-	return 0.015 * _sum_effect(game_id, "fortune")
+## Share of a round's EXP handed back when the round loses. Pays in EXP, never
+## chips, so it can never lift a table's RTP.
+func solace_bonus(game_id: String) -> float:
+	return SOLACE_PER_RANK * _sum(game_id, "solace")
 
 
 func auto_multiplier(game_id: String) -> float:
-	return maxf(0.35, 1.0 - 0.05 * _sum_effect(game_id, "auto"))
+	return maxf(0.35, 1.0 - AUTO_PER_RANK * _sum(game_id, "auto"))
+
+
+func ranks_in(game_id: String) -> int:
+	var n := 0
+	var g: Dictionary = levels.get(game_id, {})
+	for id in g:
+		n += int(g[id])
+	return n
 
 
 func total_ranks() -> int:

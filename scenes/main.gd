@@ -1,5 +1,11 @@
 extends Control
 
+## Builds the whole layout in code.
+##
+## main.tscn is intentionally almost empty: every panel, button and label is
+## constructed here, so node paths cannot drift out of sync with the scripts
+## that use them and the entire layout shows up as a readable diff.
+
 const SlotMachine := preload("res://minigames/slot_machine.gd")
 const Roulette := preload("res://minigames/roulette.gd")
 const Dice := preload("res://minigames/dice.gd")
@@ -32,8 +38,9 @@ const PLAY_TAB_INDEX := 1
 var _toast_box: VBoxContainer
 var _minigames: Array[Minigame] = []
 var _main_tabs: TabContainer
+var _game_tabs: TabContainer
 var _daily_button: Button
-var _event_modal: Control = null
+var _modal: Control = null
 
 
 func _ready() -> void:
@@ -50,6 +57,7 @@ func _ready() -> void:
 	root.add_child(_build_tabs())
 	root.add_child(_build_footer())
 	_build_toast_layer()
+
 	GameManager.toast.connect(_show_toast)
 	GameManager.drain_pending_toasts()
 	Events.daily_changed.connect(_refresh_daily)
@@ -58,6 +66,97 @@ func _ready() -> void:
 	_refresh_daily()
 	if Events.is_event_pending():
 		_on_random_event(Events.pending_event)
+
+	if OS.get_cmdline_args().has("--selftest"):
+		_run_selftest.call_deferred()
+
+
+## Headless coverage for every table's round logic.
+##
+## Booting the scene only proves the eighteen `_ready` methods work; the actual
+## betting, payout and settle paths never run. This drives each table through
+## several rounds at every one of its selectable options, so a bad index or a
+## renamed helper fails the build instead of reaching players.
+func _run_selftest() -> void:
+	AudioManager.enabled = false
+	Settings.fast_animations = true
+	Settings.show_float_text = false
+
+	var audit := BalanceAudit.new()
+	var balance_failures := audit.run()
+	for line in audit.lines:
+		print(line)
+	var icon_failures := _audit_icons()
+	for line in icon_failures:
+		printerr("ICON ERROR: ", line)
+	if not balance_failures.is_empty() or not icon_failures.is_empty():
+		printerr("selftest: %d balance and %d icon failure(s)"
+			% [balance_failures.size(), icon_failures.size()])
+		get_tree().quit(1)
+		return
+
+	print("selftest: driving %d tables" % _minigames.size())
+
+	for game in _minigames:
+		if not is_instance_valid(game):
+			continue
+		GameManager.chips = 1.0e9
+		# Keno needs a ticket before it will accept a wager.
+		if game.game_id == "keno":
+			game._quick_pick()
+		for round_index in range(6):
+			game.bet = 100.0
+			await game.play_once()
+			if not is_instance_valid(game):
+				break
+		print("selftest: %s ok (%d rounds)" % [
+			game.game_id, int(GameManager.stats.get("plays", {}).get(game.game_id, 0))])
+
+	# Exercise the systems the tables feed into.
+	GameManager.chips = 1.0e12
+	Casino.buy("penny_slots", 10)
+	Upgrades.buy_skill("floor_manager")
+	GameUpgrades.buy("slots", "reel_tension")
+	Events.claim_daily()
+	Achievements.check_all()
+	SaveManager.save_game(true)
+	print("selftest: complete, %d wagers recorded" % int(GameManager.stats.get("total_wagers", 0)))
+	get_tree().quit()
+
+
+## Every icon the data tables name must resolve to a real sprite. A missing
+## PNG is otherwise invisible until someone opens that panel.
+func _audit_icons() -> Array[String]:
+	var missing: Array[String] = []
+	var wanted: Dictionary = {}
+
+	for g in _minigames:
+		wanted[g.game_icon] = "table %s" % g.game_id
+		for d in GameUpgrades.defs_for(g.game_id):
+			wanted[String(d["icon"])] = "upgrade %s" % String(d["id"])
+	for d in Casino.GENERATORS:
+		wanted[String(d["icon"])] = "property %s" % String(d["id"])
+	for d in Upgrades.SKILLS:
+		wanted[String(d["icon"])] = "skill %s" % String(d["id"])
+	for d in Upgrades.PRESTIGE:
+		wanted[String(d["icon"])] = "prestige %s" % String(d["id"])
+	for d in Achievements.LIST:
+		wanted[String(d["icon"])] = "achievement %s" % String(d["id"])
+	for d in Events.RANDOM_EVENTS:
+		wanted[String(d["icon"])] = "event %s" % String(d["id"])
+	for name in ["chip", "chip_gold", "exp", "skill", "prestige", "trophy", "gift",
+			"clock", "settings", "stats", "floor", "save", "lock", "check", "bolt",
+			"ball", "flame", "moon", "target", "card_back", "arrow_up", "arrow_down",
+			"suit_spade", "suit_heart", "suit_diamond", "suit_club"]:
+		wanted[name] = "core UI"
+	for i in range(1, 7):
+		wanted["die_%d" % i] = "die face"
+
+	for icon_name in wanted:
+		if not Icons.has(String(icon_name)):
+			missing.append("'%s' (used by %s)" % [icon_name, String(wanted[icon_name])])
+	print("selftest: checked %d distinct icons" % wanted.size())
+	return missing
 
 
 func _build_background() -> void:
@@ -73,6 +172,7 @@ func _tab_container(font_size: int) -> TabContainer:
 	tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	tabs.add_theme_font_size_override("font_size", font_size)
+	tabs.add_theme_constant_override("icon_max_width", font_size + 6)
 	tabs.add_theme_stylebox_override("panel", UIKit.stylebox(UIKit.PANEL, 10, 1))
 	tabs.add_theme_stylebox_override("tab_selected", UIKit.stylebox(UIKit.PANEL, 8, 0))
 	tabs.add_theme_stylebox_override("tab_unselected", UIKit.stylebox(UIKit.BG, 8, 0))
@@ -84,53 +184,87 @@ func _tab_container(font_size: int) -> TabContainer:
 
 
 func _build_tabs() -> Control:
-	_main_tabs = _tab_container(16)
+	_main_tabs = _tab_container(15)
 	_main_tabs.tab_changed.connect(_on_main_tab_changed)
-	for entry in [
-		[CasinoPanel, "🏛️ Casino"], [null, "🎲 Play"], [SkillsPanel, "🎓 Skills"],
-		[PrestigePanel, "♻️ Prestige"], [StatsPanel, "📊 Records"], [SettingsPanel, "⚙️ Settings"],
-	]:
+	var entries: Array = [
+		[CasinoPanel, "Casino", "floor"],
+		[null, "Play", "game_dice"],
+		[SkillsPanel, "Skills", "skill"],
+		[PrestigePanel, "Prestige", "prestige"],
+		[StatsPanel, "Records", "stats"],
+		[SettingsPanel, "Settings", "settings"],
+	]
+	for i in range(entries.size()):
+		var entry: Array = entries[i]
+		var child: Control
 		if entry[0] == null:
-			var play := _build_play_tab()
-			play.name = String(entry[1])
-			_main_tabs.add_child(play)
+			child = _build_play_tab()
 		else:
-			var panel = entry[0].new()
-			panel.name = String(entry[1])
-			_main_tabs.add_child(panel)
+			child = entry[0].new()
+		child.name = String(entry[1])
+		_main_tabs.add_child(child)
+		_main_tabs.set_tab_icon(i, Icons.tex(String(entry[2])))
 	return _main_tabs
 
 
 func _build_play_tab() -> Control:
-	var tabs := _tab_container(12)
-	tabs.tab_changed.connect(_on_game_tab_changed)
+	_game_tabs = _tab_container(12)
+	_game_tabs.tab_changed.connect(_on_game_tab_changed)
 	var games: Array = [
-		[SlotMachine, "🎰 Slots"], [Roulette, "🎡 Roulette"], [Dice, "🎲 Dice"],
-		[ScratchCards, "🎫 Scratch"], [HigherLower, "🃏 Hi-Lo"], [Blackjack, "🂡 BJ"],
-		[Plinko, "🔵 Plinko"], [CoinFlip, "🪙 Flip"], [MoneyWheel, "🎯 Wheel"],
-		[Crash, "📈 Crash"], [Keno, "🎱 Keno"], [Baccarat, "🎴 Bacc"],
-		[VideoPoker, "♠️ Poker"], [War, "⚔️ War"], [CoinPusher, "🪙 Push"],
-		[ClawMachine, "🦾 Claw"], [Darts, "🎯 Darts"], [Fishing, "🎣 Fish"],
+		[SlotMachine, "Slots", "game_slots"],
+		[Roulette, "Roulette", "game_roulette"],
+		[Dice, "Dice", "game_dice"],
+		[ScratchCards, "Scratch", "game_scratch"],
+		[HigherLower, "Hi-Lo", "game_hilo"],
+		[Blackjack, "Blackjack", "game_blackjack"],
+		[Plinko, "Plinko", "game_plinko"],
+		[CoinFlip, "Flip", "game_coinflip"],
+		[MoneyWheel, "Wheel", "game_wheel"],
+		[Crash, "Crash", "game_crash"],
+		[Keno, "Keno", "game_keno"],
+		[Baccarat, "Baccarat", "game_baccarat"],
+		[VideoPoker, "Poker", "game_videopoker"],
+		[War, "War", "game_war"],
+		[CoinPusher, "Pusher", "game_pusher"],
+		[ClawMachine, "Claw", "game_claw"],
+		[Darts, "Darts", "game_darts"],
+		[Fishing, "Fishing", "game_fishing"],
 	]
-	for entry in games:
+	for i in range(games.size()):
+		var entry: Array = games[i]
 		var g: Minigame = entry[0].new()
 		g.name = String(entry[1])
 		_minigames.append(g)
-		tabs.add_child(g)
-	return tabs
+		_game_tabs.add_child(g)
+		_game_tabs.set_tab_icon(i, Icons.tex(String(entry[2])))
+	return _game_tabs
 
 
 func _on_main_tab_changed(index: int) -> void:
-	if index != PLAY_TAB_INDEX:
+	if index != PLAY_TAB_INDEX and Settings.stop_auto_on_tab:
 		_stop_all_auto()
 	AudioManager.play_click()
 
 
 func _on_game_tab_changed(_index: int) -> void:
-	for game in _minigames:
-		if is_instance_valid(game) and not game.is_visible_in_tree():
-			game.stop_auto()
+	if Settings.stop_auto_on_tab:
+		for game in _minigames:
+			if is_instance_valid(game) and not game.is_visible_in_tree():
+				game.stop_auto()
+	if Settings.keep_bet_on_switch:
+		_carry_bet()
 	AudioManager.play_click()
+
+
+## Copy the bet from whichever table the player just left onto the new one.
+func _carry_bet() -> void:
+	for game in _minigames:
+		if is_instance_valid(game) and game.is_visible_in_tree():
+			if Settings.carried_bet > 0.0:
+				game.bet = Settings.carried_bet
+				game._sync_bet()
+		elif is_instance_valid(game) and game.bet > 0.0:
+			Settings.carried_bet = game.bet
 
 
 func _stop_all_auto() -> void:
@@ -141,20 +275,22 @@ func _stop_all_auto() -> void:
 
 func _build_footer() -> Control:
 	var row := UIKit.hbox(10)
-	var save_button := UIKit.button("💾 Save", 15, UIKit.GREEN)
-	save_button.custom_minimum_size = Vector2(100, 36)
+	var save_button := UIKit.icon_button("save", "Save", 14, UIKit.GREEN)
+	save_button.custom_minimum_size = Vector2(104, 36)
 	save_button.pressed.connect(func(): SaveManager.save_game(false))
 	row.add_child(save_button)
 
-	_daily_button = UIKit.button("🎁 Daily", 15, UIKit.GOLD)
-	_daily_button.custom_minimum_size = Vector2(110, 36)
+	_daily_button = UIKit.icon_button("gift", "Daily", 14, UIKit.GOLD)
+	_daily_button.custom_minimum_size = Vector2(150, 36)
 	_daily_button.pressed.connect(_on_daily)
 	row.add_child(_daily_button)
 
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("18 tables · Rare events (45m CD)", 12, UIKit.DIM))
+	row.add_child(UIKit.label("18 tables, every one verified below 100% return",
+		12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("v0.5.1", 12, UIKit.DIM))
+	row.add_child(UIKit.label("v%s" % ProjectSettings.get_setting("application/config/version", "0.6.0"),
+		12, UIKit.FAINT))
 	return row
 
 
@@ -162,7 +298,8 @@ func _on_daily() -> void:
 	if Events.claim_daily() > 0.0:
 		_refresh_daily()
 	else:
-		GameManager.notify_toast("Already claimed today (streak %d)" % Events.daily_streak, UIKit.DIM)
+		GameManager.notify_toast("Already claimed today (streak %d)" % Events.daily_streak,
+			UIKit.DIM, "clock")
 		AudioManager.play_error()
 
 
@@ -170,65 +307,110 @@ func _refresh_daily() -> void:
 	if _daily_button == null:
 		return
 	if Events.can_claim_daily():
-		_daily_button.text = "🎁 Daily +%s" % Fmt.chips(Events.daily_reward_amount())
+		_daily_button.text = "Daily +%s" % Fmt.chips(Events.daily_reward_amount())
 		_daily_button.disabled = false
 	else:
-		_daily_button.text = "🎁 Streak %d" % Events.daily_streak
+		_daily_button.text = "Streak %d" % Events.daily_streak
 		_daily_button.disabled = true
 
 
-func _on_random_event(event: Dictionary) -> void:
-	if _event_modal != null and is_instance_valid(_event_modal):
-		return
+# --- modals ----------------------------------------------------------------
+
+## Dim backdrop plus a centred panel. Returns the column to fill.
+func _open_modal(width: int, height: int) -> VBoxContainer:
+	_close_modal()
 	var dim := ColorRect.new()
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0, 0, 0, 0.7)
+	dim.color = Color(0, 0, 0, 0.72)
 	add_child(dim)
-	_event_modal = dim
+	_modal = dim
 
 	var panel := UIKit.panel(UIKit.PANEL, 16, 2)
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2(480, 0)
-	panel.offset_left = -240
-	panel.offset_top = -140
-	panel.offset_right = 240
-	panel.offset_bottom = 140
+	panel.custom_minimum_size = Vector2(width, 0)
+	panel.offset_left = -width / 2.0
+	panel.offset_top = -height / 2.0
+	panel.offset_right = width / 2.0
+	panel.offset_bottom = height / 2.0
 	dim.add_child(panel)
 
 	var col := UIKit.vbox(12)
-	col.add_child(UIKit.title("%s  Random Event" % String(event.get("icon", "⚡")), 24, UIKit.ORANGE))
+	panel.add_child(col)
+	return col
+
+
+func _close_modal() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	_modal = null
+
+
+func _on_random_event(event: Dictionary) -> void:
+	if _modal != null and is_instance_valid(_modal):
+		return
+	var col := _open_modal(500, 300)
+	var head := UIKit.hbox(12)
+	head.add_child(UIKit.icon(String(event.get("icon", "gift")), 42))
+	var titles := UIKit.vbox(2)
+	titles.add_child(UIKit.label("Floor event", 12, UIKit.ORANGE))
+	titles.add_child(UIKit.title(String(event.get("name", "Event")), 23))
+	head.add_child(titles)
+	col.add_child(head)
 	col.add_child(UIKit.separator())
-	col.add_child(UIKit.label(String(event.get("name", "Event")), 22, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	col.add_child(UIKit.wrapped(String(event.get("desc", "")), 15, UIKit.TEXT))
-	col.add_child(UIKit.label("Next event in 45 minutes after this one.", 12, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	col.add_child(UIKit.label("The next event unlocks in about %s."
+		% Fmt.duration(Events.cooldown_length()), 12, UIKit.DIM))
+	col.add_child(UIKit.spacer(false))
 
 	var row := UIKit.hbox(12)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var claim := UIKit.primary_button("CLAIM", 18, UIKit.GOLD)
-	claim.custom_minimum_size = Vector2(160, 48)
+	claim.custom_minimum_size = Vector2(170, 48)
 	claim.pressed.connect(func():
 		Events.claim_pending_event()
 		AudioManager.play_click()
-		_close_event_modal()
+		_close_modal()
 	)
 	row.add_child(claim)
-	var skip := UIKit.button("Skip", 16, UIKit.DIM)
+	var skip := UIKit.button("Skip", 15, UIKit.DIM)
 	skip.custom_minimum_size = Vector2(100, 48)
 	skip.pressed.connect(func():
 		Events.dismiss_pending_event()
 		AudioManager.play_click()
-		_close_event_modal()
+		_close_modal()
 	)
 	row.add_child(skip)
 	col.add_child(row)
-	panel.add_child(col)
 
 
-func _close_event_modal() -> void:
-	if _event_modal != null and is_instance_valid(_event_modal):
-		_event_modal.queue_free()
-	_event_modal = null
+func _show_offline_report() -> void:
+	var report := SaveManager.claim_offline_report()
+	if report.is_empty():
+		return
+	var col := _open_modal(480, 300)
+	var head := UIKit.hbox(12)
+	head.add_child(UIKit.icon("moon", 40))
+	head.add_child(UIKit.title("Welcome back", 25))
+	col.add_child(head)
+	col.add_child(UIKit.separator())
+	col.add_child(UIKit.label("Your floor ran for %s."
+		% Fmt.duration(float(report["seconds"])), 15))
+	col.add_child(UIKit.numeral("+%s chips" % Fmt.chips(float(report["amount"])), 30, UIKit.GOLD))
+	if bool(report.get("capped", false)):
+		col.add_child(UIKit.wrapped(
+			"That is the %s cap. The Vault and Night Shift upgrades raise it."
+			% Fmt.duration(float(report.get("cap", 0.0))), 12, UIKit.ORANGE))
+	col.add_child(UIKit.spacer(false))
+	var ok := UIKit.primary_button("COLLECT", 18, UIKit.GOLD)
+	ok.custom_minimum_size = Vector2(0, 46)
+	ok.pressed.connect(func():
+		AudioManager.play_click()
+		_close_modal()
+	)
+	col.add_child(ok)
 
+
+# --- toasts ----------------------------------------------------------------
 
 func _build_toast_layer() -> void:
 	var holder := Control.new()
@@ -237,56 +419,34 @@ func _build_toast_layer() -> void:
 	add_child(holder)
 	_toast_box = UIKit.vbox(6)
 	_toast_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_toast_box.offset_left = -420
+	_toast_box.offset_left = -430
 	_toast_box.offset_top = 96
 	_toast_box.offset_right = -24
 	_toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(_toast_box)
 
 
-func _show_toast(text: String, color: Color) -> void:
+func _show_toast(text: String, color: Color, icon: String) -> void:
 	if _toast_box == null:
 		return
 	while _toast_box.get_child_count() >= MAX_TOASTS:
 		var oldest := _toast_box.get_child(0)
 		_toast_box.remove_child(oldest)
 		oldest.queue_free()
-	var panel := UIKit.panel(UIKit.PANEL_HI, 8, 1)
+
+	var panel := UIKit.accent_panel(color, UIKit.PANEL_HI, 10)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(UIKit.label(text, 15, color, HORIZONTAL_ALIGNMENT_RIGHT))
+	var row := UIKit.hbox(8)
+	if not icon.is_empty():
+		row.add_child(UIKit.icon(icon, 22))
+	var l := UIKit.label(text, 14, color)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	panel.add_child(row)
 	_toast_box.add_child(panel)
+
 	var tw := create_tween()
 	tw.tween_interval(3.0)
 	tw.tween_property(panel, "modulate:a", 0.0, 0.6)
 	tw.tween_callback(panel.queue_free)
-
-
-func _show_offline_report() -> void:
-	var report := SaveManager.claim_offline_report()
-	if report.is_empty():
-		return
-	var dim := ColorRect.new()
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0, 0, 0, 0.65)
-	add_child(dim)
-	var panel := UIKit.panel(UIKit.PANEL, 14, 2)
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2(460, 0)
-	panel.offset_left = -230
-	panel.offset_top = -120
-	panel.offset_right = 230
-	panel.offset_bottom = 120
-	dim.add_child(panel)
-	var col := UIKit.vbox(10)
-	col.add_child(UIKit.title("🌙  Welcome back", 26))
-	col.add_child(UIKit.separator())
-	col.add_child(UIKit.label("Your floor ran for %s." % Fmt.duration(float(report["seconds"])), 16))
-	col.add_child(UIKit.label("+%s chips" % Fmt.chips(float(report["amount"])), 30, UIKit.GOLD))
-	var ok := UIKit.primary_button("COLLECT", 18, UIKit.GOLD)
-	ok.custom_minimum_size = Vector2(0, 44)
-	ok.pressed.connect(func():
-		AudioManager.play_click()
-		dim.queue_free()
-	)
-	col.add_child(ok)
-	panel.add_child(col)

@@ -1,62 +1,75 @@
 extends Minigame
 
-## Simplified single-deck blackjack vs dealer.
-## Player auto-strategy for auto-play: hit below 17, stand on 17+.
-## Blackjack pays 2.5x stake. Win 2x, push returns stake.
-## Approximate RTP ~94%.
+## Simplified blackjack against the dealer.
+##
+## Infinite shoe, player hits below 17, dealer stands on 17, six cards maximum
+## either side. A natural pays 2.5x, an ordinary win 2x, a tie returns the
+## stake. Those rules give an exact return, and BalanceAudit enumerates the full
+## state tree rather than sampling it:
+##   RTP 94.3366%  |  win 41.13%  |  push 9.83%  |  loss 49.0432%
 
-const RANKS := ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-const VALUES := [11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
+const VALUES: Array[int] = [11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
+const MAX_CARDS := 6
+const NATURAL_PAYS := 2.5
+const WIN_PAYS := 2.0
+const LOSS_RATE := 0.490432
 
-var _player_label: Label
-var _dealer_label: Label
-var _total_p: Label
-var _total_d: Label
+var _player_row: HBoxContainer
+var _dealer_row: HBoxContainer
+var _player_total: Label
+var _dealer_total: Label
 
 
 func _init() -> void:
 	game_id = "blackjack"
 	game_name = "Blackjack"
-	game_icon = "🂡"
-	base_rtp = 0.94
+	game_icon = "game_blackjack"
+	base_rtp = 0.943366
+	rules_text = "You hit below 17, the dealer stands on 17. A natural pays 2.5x."
 
 
 func _build_board(container: VBoxContainer) -> void:
 	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 2)
-	var col := UIKit.vbox(10)
+	var col := UIKit.vbox(8)
 
-	col.add_child(UIKit.label("Dealer", 14, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
-	_dealer_label = UIKit.label("—", 28, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(_dealer_label)
-	_total_d = UIKit.label("", 16, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(_total_d)
+	var dealer_head := UIKit.hbox(8)
+	dealer_head.add_child(UIKit.label("Dealer", 13, UIKit.DIM))
+	dealer_head.add_child(UIKit.spacer())
+	_dealer_total = UIKit.label("", 15, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	dealer_head.add_child(_dealer_total)
+	col.add_child(dealer_head)
+	_dealer_row = UIKit.hbox(6)
+	_dealer_row.custom_minimum_size = Vector2(0, 88)
+	col.add_child(_dealer_row)
 
 	col.add_child(UIKit.separator())
 
-	col.add_child(UIKit.label("You", 14, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
-	_player_label = UIKit.label("—", 28, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(_player_label)
-	_total_p = UIKit.label("", 16, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(_total_p)
+	var player_head := UIKit.hbox(8)
+	player_head.add_child(UIKit.label("You", 13, UIKit.DIM))
+	player_head.add_child(UIKit.spacer())
+	_player_total = UIKit.label("", 15, UIKit.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	player_head.add_child(_player_total)
+	col.add_child(player_head)
+	_player_row = UIKit.hbox(6)
+	_player_row.custom_minimum_size = Vector2(0, 88)
+	col.add_child(_player_row)
 
 	panel.add_child(col)
 	container.add_child(panel)
-	container.add_child(UIKit.wrapped(
-		"Auto strategy: hit below 17. Blackjack pays 3:2. Dealer stands on 17.",
-		12, UIKit.DIM))
 
 
-func _draw_card() -> Dictionary:
-	var i := randi() % RANKS.size()
-	return {"name": RANKS[i], "value": VALUES[i]}
+## A card is a rank index 0..12; the value table maps it to blackjack points.
+func _deal_card() -> int:
+	return randi() % 13
 
 
 func _hand_value(cards: Array) -> int:
 	var total := 0
 	var aces := 0
-	for c in cards:
-		total += int(c["value"])
-		if int(c["value"]) == 11:
+	for rank in cards:
+		var v: int = VALUES[int(rank)]
+		total += v
+		if v == 11:
 			aces += 1
 	while total > 21 and aces > 0:
 		total -= 10
@@ -64,97 +77,95 @@ func _hand_value(cards: Array) -> int:
 	return total
 
 
-func _fmt(cards: Array) -> String:
-	var parts: Array[String] = []
-	for c in cards:
-		parts.append(String(c["name"]))
-	return "  ".join(parts)
+func _render(row: HBoxContainer, cards: Array, hide_first: bool = false) -> void:
+	for child in row.get_children():
+		row.remove_child(child)
+		child.queue_free()
+	for i in range(cards.size()):
+		var c := UIKit.card(58, 82)
+		if hide_first and i == 1:
+			UIKit.set_card_back(c)
+		else:
+			UIKit.set_card(c, int(cards[i]), randi() % 4)
+		row.add_child(c)
 
 
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
 
 	var staked := bet
-	var player: Array = [_draw_card(), _draw_card()]
-	var dealer: Array = [_draw_card(), _draw_card()]
+	var player: Array = [_deal_card(), _deal_card()]
+	var dealer: Array = [_deal_card(), _deal_card()]
 
-	_player_label.text = _fmt(player)
-	_dealer_label.text = "%s  ?" % dealer[0]["name"]
-	_total_p.text = str(_hand_value(player))
-	_total_d.text = "?"
-	set_result("Playing...", UIKit.DIM)
-	await wait(0.2)
+	_render(_player_row, player)
+	_render(_dealer_row, dealer, true)
+	_player_total.text = str(_hand_value(player))
+	_dealer_total.text = "?"
+	set_result("Dealing...", UIKit.DIM)
+	await wait(0.22)
 	if not is_inside_tree():
 		return
 
 	var pval := _hand_value(player)
 	var dval := _hand_value(dealer)
 
-	# Natural blackjack
+	# Naturals resolve before anyone draws.
 	if pval == 21 or dval == 21:
-		_dealer_label.text = _fmt(dealer)
-		_total_d.text = str(dval)
-		var payout := 0.0
+		_render(_dealer_row, dealer)
+		_dealer_total.text = str(dval)
 		if pval == 21 and dval == 21:
-			GameManager.add_chips(staked, false)
-			finish_round(0.0, 1.0, false)
-			set_result("Double blackjack — push.", UIKit.BLUE)
+			settle_push("Both blackjack - push.")
 			return
-		elif pval == 21:
-			payout = staked * 2.5
-			finish_round(payout, 0.52, true)
-			set_result("BLACKJACK!  +%s" % Fmt.chips(payout), UIKit.GOLD)
-			celebrate(payout, 2.5)
+		if pval == 21:
+			var natural := staked * NATURAL_PAYS
+			finish_round(natural, LOSS_RATE, true)
+			set_result("BLACKJACK  +%s" % Fmt.chips(natural), UIKit.GOLD, "trophy")
+			celebrate(natural, NATURAL_PAYS)
+			if Settings.stop_auto_on_jackpot:
+				stop_auto()
 			return
-		else:
-			finish_round(0.0, 0.52, false)
-			set_result("Dealer blackjack.", UIKit.DIM)
-			return
+		finish_round(0.0, LOSS_RATE, false)
+		set_result("Dealer blackjack.", UIKit.DIM)
+		return
 
-	# Player hits to 17
-	while pval < 17 and player.size() < 6:
-		player.append(_draw_card())
+	while pval < 17 and player.size() < MAX_CARDS:
+		player.append(_deal_card())
 		pval = _hand_value(player)
-		_player_label.text = _fmt(player)
-		_total_p.text = str(pval)
+		_render(_player_row, player)
+		_player_total.text = str(pval)
 		await wait(0.18)
 		if not is_inside_tree():
 			return
 
 	if pval > 21:
-		_dealer_label.text = _fmt(dealer)
-		_total_d.text = str(dval)
-		finish_round(0.0, 0.52, false)
-		set_result("Bust (%d)." % pval, UIKit.DIM)
+		_render(_dealer_row, dealer)
+		_dealer_total.text = str(dval)
+		finish_round(0.0, LOSS_RATE, false)
+		set_result("Bust at %d." % pval, UIKit.DIM)
 		return
 
-	# Dealer plays
-	_dealer_label.text = _fmt(dealer)
-	_total_d.text = str(dval)
+	_render(_dealer_row, dealer)
+	_dealer_total.text = str(dval)
 	await wait(0.2)
-	while dval < 17 and dealer.size() < 6:
-		dealer.append(_draw_card())
+	while dval < 17 and dealer.size() < MAX_CARDS:
+		dealer.append(_deal_card())
 		dval = _hand_value(dealer)
-		_dealer_label.text = _fmt(dealer)
-		_total_d.text = str(dval)
+		_render(_dealer_row, dealer)
+		_dealer_total.text = str(dval)
 		await wait(0.18)
 		if not is_inside_tree():
 			return
 
-	var payout2 := 0.0
 	if dval > 21 or pval > dval:
-		payout2 = staked * 2.0
-		finish_round(payout2, 0.52, false)
-		set_result("You win!  +%s" % Fmt.chips(payout2), UIKit.GREEN)
-		celebrate(payout2, 2.0)
+		var payout := staked * WIN_PAYS
+		finish_round(payout, LOSS_RATE, false)
+		set_result("You win  +%s" % Fmt.chips(payout), UIKit.GREEN, "check")
+		celebrate(payout, WIN_PAYS)
 	elif pval == dval:
-		GameManager.add_chips(staked, false)
-		finish_round(0.0, 1.0, false)
-		set_result("Push.", UIKit.BLUE)
-		AudioManager.play_refund()
+		settle_push("Push - stake returned.")
 	else:
-		finish_round(0.0, 0.52, false)
-		set_result("Dealer wins.", UIKit.DIM)
+		finish_round(0.0, LOSS_RATE, false)
+		set_result("Dealer wins with %d." % dval, UIKit.DIM)

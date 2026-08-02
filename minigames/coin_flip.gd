@@ -1,36 +1,37 @@
 extends Minigame
 
-## Simple coin flip — heads or tails at nearly even money.
-## House edge keeps RTP at 95%.
+## Heads or tails at 1.9x on a fair coin: 0.5 * 1.9 = exactly 95% RTP.
+
+const PAYS := 1.9
+const LOSS_RATE := 0.5
 
 var _side := "heads"
-var _coin_label: Label
+var _coin: TextureRect
 var _side_buttons: Dictionary = {}
 
 
 func _init() -> void:
 	game_id = "coin_flip"
 	game_name = "Coin Flip"
-	game_icon = "🪙"
+	game_icon = "game_coinflip"
 	base_rtp = 0.95
+	rules_text = "Call it in the air. A correct call pays 1.9x."
 
 
 func _build_board(container: VBoxContainer) -> void:
 	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 2)
-	_coin_label = UIKit.label("🪙", 72, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	panel.add_child(_coin_label)
+	var tile := UIKit.icon_tile("chip_gold", 132, 104, UIKit.PANEL_SUNK)
+	tile.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_coin = tile.get_child(0) as TextureRect
+	panel.add_child(tile)
 	container.add_child(panel)
 
-	var row := UIKit.hbox(14)
+	var row := UIKit.segmented(["heads", "tails"], ["HEADS", "TAILS"], _side_buttons,
+		UIKit.GOLD, 140, 48)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	for entry in [["heads", "HEADS"], ["tails", "TAILS"]]:
-		var b := UIKit.button(String(entry[1]), 20, UIKit.GOLD)
-		b.custom_minimum_size = Vector2(130, 48)
-		b.pressed.connect(_select.bind(String(entry[0])))
-		_side_buttons[String(entry[0])] = b
-		row.add_child(b)
+	for id in _side_buttons:
+		_side_buttons[id].pressed.connect(_select.bind(String(id)))
 	container.add_child(row)
-	container.add_child(UIKit.wrapped("Call it in the air. Pays 1.9x on a correct call.", 12, UIKit.DIM))
 	_refresh()
 
 
@@ -41,44 +42,33 @@ func _select(s: String) -> void:
 
 
 func _refresh() -> void:
-	for k in _side_buttons:
-		var b: Button = _side_buttons[k]
-		b.add_theme_color_override("font_color", UIKit.GOLD if k == _side else UIKit.TEXT)
+	UIKit.segmented_select(_side_buttons, _side, UIKit.GOLD)
 
 
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
 
 	var staked := bet
 	set_result("Flipping...", UIKit.DIM)
 	for i in range(10):
-		if i % 2 == 0:
-			_coin_label.text = "🪙"
-		else:
-			_coin_label.text = "⚪"
+		_coin.texture = Icons.tex("chip_gold" if i % 2 == 0 else "chip")
 		await wait(0.04 + float(i) * 0.008)
 		if not is_inside_tree():
 			return
 
-	var result := "heads"
-	if randf() >= 0.5:
-		result = "tails"
-	if result == "heads":
-		_coin_label.text = "🪙"
-	else:
-		_coin_label.text = "⚪"
-	FX.pulse(_coin_label, 1.25, 0.2)
+	var result := "heads" if randf() < 0.5 else "tails"
+	_coin.texture = Icons.tex("chip_gold" if result == "heads" else "chip")
+	FX.pulse(_coin, 1.25, 0.2)
 
 	var won := result == _side
-	var payout := 0.0
+	var payout := staked * PAYS if won else 0.0
+	var credited := finish_round(payout, LOSS_RATE, false)
+
 	if won:
-		payout = staked * 1.9
-	var credited := finish_round(payout, 0.5, false)
-	if won:
-		set_result("%s!  +%s" % [result.capitalize(), Fmt.chips(payout)], UIKit.GREEN)
-		celebrate(payout, 1.9)
+		set_result("%s  +%s" % [result.capitalize(), Fmt.chips(payout)], UIKit.GREEN, "check")
+		celebrate(payout, PAYS)
 	elif credited <= 0.0:
 		set_result("%s - wrong call." % result.capitalize(), UIKit.DIM)

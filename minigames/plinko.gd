@@ -1,56 +1,84 @@
 extends Minigame
 
-## Plinko-style ball drop into weighted slots.
-## 9 slots with multipliers; center is safer, edges are jackpot-tier.
-## Designed RTP ≈ 93%.
+## Plinko: a ball drops into one of nine weighted slots.
+##
+## The centre slot pays nothing — it is the loss. Every other slot pays at
+## least 1.2x, because a slot that returns a fraction of the stake reads as a
+## win in the UI while actually being a loss. The centre weight is solved so
+## the table lands on exactly 93%:
+##
+##   sum(weight * mult) / sum(weight) = 2740 / 2946 = 0.9301
 
 const SLOTS: Array[Dictionary] = [
-	{"mult": 5.0,  "weight": 4,  "color": "gold"},
-	{"mult": 2.0,  "weight": 10, "color": "orange"},
-	{"mult": 1.2,  "weight": 16, "color": "green"},
-	{"mult": 0.6,  "weight": 22, "color": "blue"},
-	{"mult": 0.3,  "weight": 28, "color": "dim"},
-	{"mult": 0.6,  "weight": 22, "color": "blue"},
-	{"mult": 1.2,  "weight": 16, "color": "green"},
-	{"mult": 2.0,  "weight": 10, "color": "orange"},
-	{"mult": 5.0,  "weight": 4,  "color": "gold"},
+	{"mult": 25.0, "weight": 10,   "accent": "gold"},
+	{"mult": 6.0,  "weight": 60,   "accent": "orange"},
+	{"mult": 2.5,  "weight": 160,  "accent": "purple"},
+	{"mult": 1.2,  "weight": 300,  "accent": "green"},
+	{"mult": 0.0,  "weight": 1886, "accent": "dim"},
+	{"mult": 1.2,  "weight": 300,  "accent": "green"},
+	{"mult": 2.5,  "weight": 160,  "accent": "purple"},
+	{"mult": 6.0,  "weight": 60,   "accent": "orange"},
+	{"mult": 25.0, "weight": 10,   "accent": "gold"},
 ]
 
-var _slot_labels: Array[Label] = []
-var _ball_label: Label
+const LOSS_RATE := 0.640190
+
+var _slot_panels: Array[PanelContainer] = []
+var _ball: TextureRect
+var _ball_row: HBoxContainer
 
 
 func _init() -> void:
 	game_id = "plinko"
 	game_name = "Plinko"
-	game_icon = "🔵"
+	game_icon = "game_plinko"
 	base_rtp = 0.93
+	rules_text = "The edges pay big and the middle pays nothing. Most balls land in the middle."
 
 
 func _build_board(container: VBoxContainer) -> void:
-	_ball_label = UIKit.label("●", 40, UIKit.CYAN, HORIZONTAL_ALIGNMENT_CENTER)
-	container.add_child(_ball_label)
+	_ball_row = UIKit.hbox(0)
+	_ball_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_ball = UIKit.icon("ball", 30)
+	_ball_row.add_child(_ball)
+	container.add_child(_ball_row)
 
-	var row := UIKit.hbox(6)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var pegs := UIKit.vbox(6)
+	for row in range(3):
+		var line := UIKit.hbox(18)
+		line.alignment = BoxContainer.ALIGNMENT_CENTER
+		for i in range(3 + row):
+			var dot := UIKit.icon("ball", 9, UIKit.FAINT)
+			line.add_child(dot)
+		pegs.add_child(line)
+	container.add_child(pegs)
+
+	var row2 := UIKit.hbox(5)
+	row2.alignment = BoxContainer.ALIGNMENT_CENTER
 	for s in SLOTS:
-		var panel := UIKit.panel(UIKit.PANEL, 8, 1)
-		panel.custom_minimum_size = Vector2(56, 64)
-		var l := UIKit.label("x%s" % Fmt.chips(float(s["mult"])), 14, _color_of(String(s["color"])) , HORIZONTAL_ALIGNMENT_CENTER)
+		var mult := float(s["mult"])
+		var accent := _accent_of(String(s["accent"]))
+		var p := UIKit.panel(UIKit.PANEL, 8, 1)
+		p.custom_minimum_size = Vector2(58, 62)
+		var l := UIKit.label("x%s" % Fmt.chips(mult) if mult > 0.0 else "-", 13, accent,
+			HORIZONTAL_ALIGNMENT_CENTER)
 		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		panel.add_child(l)
-		_slot_labels.append(l)
-		row.add_child(panel)
-	container.add_child(row)
-	container.add_child(UIKit.wrapped("Ball drops into a slot. Edges pay more, center more often.", 12, UIKit.DIM))
+		p.add_child(l)
+		_slot_panels.append(p)
+		row2.add_child(p)
+	container.add_child(row2)
 
 
-func _color_of(name: String) -> Color:
+func _accent_of(name: String) -> Color:
 	match name:
-		"gold": return UIKit.GOLD
-		"orange": return UIKit.ORANGE
-		"green": return UIKit.GREEN
-		"blue": return UIKit.BLUE
+		"gold":
+			return UIKit.GOLD
+		"orange":
+			return UIKit.ORANGE
+		"purple":
+			return UIKit.PURPLE
+		"green":
+			return UIKit.GREEN
 	return UIKit.DIM
 
 
@@ -61,9 +89,17 @@ func _pick_slot() -> int:
 	return int(weighted_pick(entries))
 
 
+## Nudge the ball horizontally by re-anchoring it over a slot column.
+func _place_ball(index: int) -> void:
+	if _ball == null:
+		return
+	var span := 63.0
+	_ball.position.x = (float(index) - 4.0) * span
+
+
 func play_once() -> void:
 	if not wager(bet):
-		set_result("Not enough chips.", UIKit.RED)
+		set_result("Not enough chips.", UIKit.RED, "lock")
 		stop_auto()
 		return
 
@@ -72,28 +108,23 @@ func play_once() -> void:
 	set_result("Dropping...", UIKit.DIM)
 
 	for i in range(12):
-		var bounce := randi() % SLOTS.size()
-		_ball_label.text = "  ".repeat(bounce) + "●"
+		_place_ball(randi() % SLOTS.size())
 		await wait(0.05 + i * 0.012)
 		if not is_inside_tree():
 			return
 
-	_ball_label.text = "  ".repeat(target) + "●"
-	FX.pulse(_slot_labels[target], 1.3, 0.25)
+	_place_ball(target)
+	FX.pulse(_slot_panels[target], 1.3, 0.25)
 
-	var mult: float = float(SLOTS[target]["mult"])
+	var mult := float(SLOTS[target]["mult"])
 	var payout := staked * mult
-	var loss_p := 0.42  # approximate P(mult < 1)
-	var credited := finish_round(payout if mult > 0.0 else 0.0, loss_p, mult >= 5.0)
+	var credited := finish_round(payout, LOSS_RATE, mult >= 25.0)
 
-	if mult >= 1.0:
-		set_result("Landed x%s  +%s" % [Fmt.chips(mult), Fmt.chips(payout)], UIKit.GREEN)
+	if payout > 0.0:
+		set_result("Landed x%s  +%s" % [Fmt.chips(mult), Fmt.chips(payout)],
+			UIKit.tier_color(mult), "check")
 		celebrate(payout, mult)
+		if mult >= 25.0 and Settings.stop_auto_on_jackpot:
+			stop_auto()
 	elif credited <= 0.0:
-		set_result("Landed x%s — loss." % Fmt.chips(mult), UIKit.DIM)
-	else:
-		set_result("Landed x%s  +%s" % [Fmt.chips(mult), Fmt.chips(payout)], UIKit.ORANGE)
-		# partial return still paid via finish_round when mult > 0
-		if mult > 0.0 and mult < 1.0:
-			# already credited inside finish_round only if payout>0 — good
-			pass
+		set_result("Straight down the middle.", UIKit.DIM)

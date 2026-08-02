@@ -17,7 +17,7 @@ static func chips(value: float) -> String:
 	if is_nan(value):
 		return "0"
 	if is_inf(value):
-		return "∞"
+		return "huge"
 	var sign_str := "-" if value < 0.0 else ""
 	var v := absf(value)
 	if v < 1000.0:

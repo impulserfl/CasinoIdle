@@ -21,7 +21,10 @@ func _process(delta: float) -> void:
 	if not _loaded:
 		return
 	_autosave_timer += delta
-	if _autosave_timer >= AUTOSAVE_INTERVAL or Settings.consume_dirty():
+	# Both sides must be evaluated: `or` short-circuits, so when the timer fired
+	# the dirty flag was never consumed and triggered a second save next frame.
+	var settings_changed := Settings.consume_dirty()
+	if _autosave_timer >= AUTOSAVE_INTERVAL or settings_changed:
 		_autosave_timer = 0.0
 		save_game(true)
 
@@ -35,6 +38,7 @@ func save_game(silent: bool = false) -> void:
 	config.set_value("run", "experience", GameManager.experience)
 	config.set_value("run", "level", GameManager.level)
 	config.set_value("run", "skill_points", GameManager.skill_points)
+	config.set_value("run", "tables_played", GameManager.run_tables_played)
 	config.set_value("meta_progress", "prestige_count", GameManager.prestige_count)
 	config.set_value("meta_progress", "gold_chips", GameManager.gold_chips)
 	config.set_value("upgrades", "skills", Upgrades.skill_levels)
@@ -62,7 +66,7 @@ func save_game(silent: bool = false) -> void:
 		push_error("CasinoIdle: failed to save (error %d)" % err)
 		return
 	if not silent:
-		GameManager.notify_toast("Game saved", UIKit.GREEN)
+		GameManager.notify_toast("Game saved", UIKit.GREEN, "save")
 		AudioManager.play_click()
 
 
@@ -99,6 +103,7 @@ func _load_v2(config: ConfigFile) -> void:
 	GameManager.experience = float(config.get_value("run", "experience", 0.0))
 	GameManager.level = int(config.get_value("run", "level", 1))
 	GameManager.skill_points = int(config.get_value("run", "skill_points", 0))
+	GameManager.run_tables_played = _as_dict(config.get_value("run", "tables_played", {}))
 	GameManager.prestige_count = int(config.get_value("meta_progress", "prestige_count", 0))
 	GameManager.gold_chips = float(config.get_value("meta_progress", "gold_chips", 0.0))
 	Upgrades.skill_levels = _as_dict(config.get_value("upgrades", "skills", {}))
@@ -127,7 +132,7 @@ func _migrate_v1(config: ConfigFile) -> void:
 	GameManager.stats["lifetime_chips_earned"] = earned
 	GameManager.stats["prestiges"] = GameManager.prestige_count
 	push_warning("CasinoIdle: migrated a v1 save to v2.")
-	GameManager.notify_toast("Save migrated to v2", UIKit.BLUE)
+	GameManager.notify_toast("Save migrated from an older version", UIKit.BLUE, "save")
 
 
 func _as_dict(value: Variant) -> Dictionary:
