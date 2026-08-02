@@ -14,9 +14,6 @@ const BACKUP_PATH := "user://casino_idle_save.bak"
 const SAVE_VERSION := 2
 const AUTOSAVE_INTERVAL := 20.0
 
-## Offline earnings are computed during this autoload's _ready(), before the main
-## scene exists to receive the signal, so the report is parked here for the UI to
-## claim once it is up.
 var pending_offline: Dictionary = {}
 
 var _autosave_timer := 0.0
@@ -32,7 +29,7 @@ func _process(delta: float) -> void:
 	if not _loaded:
 		return
 	_autosave_timer += delta
-	if _autosave_timer >= AUTOSAVE_INTERVAL:
+	if _autosave_timer >= AUTOSAVE_INTERVAL or Settings.consume_dirty():
 		_autosave_timer = 0.0
 		save_game(true)
 
@@ -65,8 +62,8 @@ func save_game(silent: bool = false) -> void:
 	config.set_value("achievements", "flags", Achievements._flags)
 
 	config.set_value("stats", "data", GameManager.stats)
+	config.set_value("settings", "data", Settings.to_dict())
 
-	# Keep the previous save as a backup so a mid-write crash is recoverable.
 	if FileAccess.file_exists(SAVE_PATH):
 		var prev := FileAccess.open(SAVE_PATH, FileAccess.READ)
 		if prev != null:
@@ -83,6 +80,7 @@ func save_game(silent: bool = false) -> void:
 		return
 	if not silent:
 		GameManager.notify_toast("Game saved", UIKit.GREEN)
+		AudioManager.play_click()
 
 
 # ===========================================================================
@@ -105,6 +103,8 @@ func load_game() -> void:
 		_migrate_v1(config)
 	else:
 		_load_v2(config)
+
+	Settings.from_dict(_as_dict(config.get_value("settings", "data", {})))
 
 	GameManager.broadcast()
 	Upgrades.changed.emit()
@@ -137,8 +137,6 @@ func _load_v2(config: ConfigFile) -> void:
 	GameManager.stats = stats
 
 
-## v1 -> v2. The old save had no casino, upgrades, achievements or stats, and
-## stored `prestige_multiplier`, which is now derived and deliberately dropped.
 func _migrate_v1(config: ConfigFile) -> void:
 	GameManager.chips = float(config.get_value("player", "chips", GameManager.BASE_START_CHIPS))
 	var earned := float(config.get_value("player", "total_chips_earned", 0.0))
@@ -185,7 +183,6 @@ func _apply_offline_progress(saved_at: float) -> void:
 	offline_earnings.emit(earned, elapsed, capped)
 
 
-## Returns the offline report exactly once, then forgets it.
 func claim_offline_report() -> Dictionary:
 	var report := pending_offline
 	pending_offline = {}
@@ -196,15 +193,12 @@ func claim_offline_report() -> Dictionary:
 # WIPE / RESET
 # ===========================================================================
 
-## Completely wipes the current save and resets all runtime state.
-## Used by the "Reset Save" button (double-confirm required).
 func wipe_save() -> void:
 	if FileAccess.file_exists(SAVE_PATH):
 		DirAccess.remove_absolute(SAVE_PATH)
 	if FileAccess.file_exists(BACKUP_PATH):
 		DirAccess.remove_absolute(BACKUP_PATH)
 
-	# Reset every system to a fresh run.
 	GameManager.prestige_count = 0
 	GameManager.gold_chips = 0.0
 	GameManager.stats = GameManager.default_stats()
@@ -220,7 +214,6 @@ func wipe_save() -> void:
 	Casino.changed.emit()
 	Achievements.check_all()
 
-	# Write a clean save so the next launch does not restore the old one.
 	save_game(true)
 
 
@@ -229,10 +222,6 @@ func wipe_save() -> void:
 # ===========================================================================
 
 func _notification(what: int) -> void:
-	# Closing a browser tab never delivers WM_CLOSE_REQUEST, so the web build
-	# relies on the focus-out and exit-tree paths below plus the 20s autosave.
-	# EXIT_TREE is safe here: autoloads tear down in reverse declaration order
-	# and SaveManager is declared last, so everything it reads still exists.
 	match what:
 		NOTIFICATION_WM_CLOSE_REQUEST, \
 		NOTIFICATION_WM_GO_BACK_REQUEST, \
