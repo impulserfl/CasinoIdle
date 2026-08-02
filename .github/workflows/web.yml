@@ -48,21 +48,59 @@ jobs:
           mv templates/* "$TARGET/"
           ls "$TARGET" | head
 
-      # Browsers expose no system fonts, so the emoji-driven UI needs a bundled
-      # fallback or the whole game renders as tofu boxes. Fetched here rather
-      # than committed to keep a binary out of the repo.
-      - name: Fetch emoji fallback font
+      # Browsers expose no system fonts, so the emoji/symbol-driven UI needs
+      # bundled fallbacks or the whole game renders as tofu boxes. Sourced from
+      # apt rather than a hardcoded URL (upstream font repos move paths), and
+      # subset to only the ~70 codepoints this project uses so we ship a few KB
+      # instead of Noto Color Emoji's ~10 MB.
+      #
+      # Non-fatal by design: a font problem must never block the deploy.
+      - name: Build bundled fallback fonts
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p assets/fonts
-          URL="https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/NotoEmoji-Regular.ttf"
-          curl -fsSL -o assets/fonts/NotoEmoji-Regular.ttf "$URL"
-          SIZE=$(stat -c%s assets/fonts/NotoEmoji-Regular.ttf)
-          echo "emoji font: $SIZE bytes"
-          if [ "$SIZE" -lt 50000 ]; then
-            echo "::error::Emoji font download looks wrong ($SIZE bytes) -- got an error page?"
-            head -c 400 assets/fonts/NotoEmoji-Regular.ttf
-            exit 1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-color-emoji fonts-noto-core
+          python3 -m pip install --quiet fonttools
+
+          UNI=$(python3 tools/emoji_codepoints.py)
+          echo "subset target: $UNI"
+
+          emoji_src=$(find /usr/share/fonts -iname 'NotoColorEmoji*.ttf' | head -1 || true)
+          sym_src=$(find /usr/share/fonts -iname 'NotoSansSymbols2*.ttf' | head -1 || true)
+          echo "emoji source:   ${emoji_src:-NONE}"
+          echo "symbols source: ${sym_src:-NONE}"
+
+          if [ -n "${emoji_src:-}" ]; then
+            pyftsubset "$emoji_src" --unicodes="$UNI" \
+              --output-file=assets/fonts/emoji_fallback.ttf || true
+          fi
+          if [ -n "${sym_src:-}" ]; then
+            pyftsubset "$sym_src" --unicodes="$UNI" \
+              --output-file=assets/fonts/symbols_fallback.ttf || true
+          fi
+          ls -la assets/fonts/ || true
+
+      # Drop anything that came out unusable so Godot never tries to import a
+      # truncated font. The game runs fine without these, just with worse glyphs.
+      - name: Validate bundled fonts
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          found=0
+          for f in assets/fonts/*.ttf; do
+            SZ=$(stat -c%s "$f")
+            if [ "$SZ" -lt 1200 ]; then
+              echo "::warning::$f is only ${SZ}b -- dropping it"
+              rm -f "$f"
+            else
+              echo "bundling $(basename "$f") (${SZ}b)"
+              found=$((found + 1))
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::warning::No fallback fonts bundled; web build may show tofu glyphs"
           fi
 
       - name: Verify balance tables
