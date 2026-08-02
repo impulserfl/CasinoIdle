@@ -23,13 +23,17 @@ const STAT_ROWS: Array[Dictionary] = [
 	{"key": "play_time",             "label": "Time played",             "kind": "time"},
 ]
 
-## Typed so `for row in GAME_ROWS` yields Dictionary rather than Variant --
-## an untyped array literal here makes `var x := ...` uninferrable downstream.
 const GAME_ROWS: Array[Dictionary] = [
-	{"id": "slots",    "label": "Slot spins"},
-	{"id": "roulette", "label": "Roulette spins"},
-	{"id": "dice",     "label": "Dice rolls"},
-	{"id": "scratch",  "label": "Cards scratched"},
+	{"id": "slots",         "label": "Slot spins"},
+	{"id": "roulette",      "label": "Roulette spins"},
+	{"id": "dice",          "label": "Dice rolls"},
+	{"id": "scratch",       "label": "Cards scratched"},
+	{"id": "higher_lower",  "label": "Higher/Lower"},
+	{"id": "blackjack",     "label": "Blackjack hands"},
+	{"id": "plinko",        "label": "Plinko drops"},
+	{"id": "coin_flip",     "label": "Coin flips"},
+	{"id": "money_wheel",   "label": "Wheel spins"},
+	{"id": "crash",         "label": "Crash rounds"},
 ]
 
 
