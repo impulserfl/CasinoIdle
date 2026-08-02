@@ -1,12 +1,7 @@
 extends Minigame
 
-## Simplified blackjack against the dealer.
-##
-## Infinite shoe, player hits below 17, dealer stands on 17, six cards maximum
-## either side. A natural pays 2.5x, an ordinary win 2x, a tie returns the
-## stake. Those rules give an exact return, and BalanceAudit enumerates the full
-## state tree rather than sampling it:
-##   RTP 94.3366%  |  win 41.13%  |  push 9.83%  |  loss 49.0432%
+## Interactive blackjack — you decide hit or stand. Dealer stands on 17.
+## Base RTP assumes solid basic-ish play; bad play can underperform it.
 
 const VALUES: Array[int] = [11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
 const MAX_CARDS := 6
@@ -18,6 +13,15 @@ var _player_row: HBoxContainer
 var _dealer_row: HBoxContainer
 var _player_total: Label
 var _dealer_total: Label
+var _hit_btn: Button
+var _stand_btn: Button
+var _hint: Label
+
+var _player: Array = []
+var _dealer: Array = []
+var _awaiting := false
+var _stood := false
+var _staked := 0.0
 
 
 func _init() -> void:
@@ -25,11 +29,11 @@ func _init() -> void:
 	game_name = "Blackjack"
 	game_icon = "game_blackjack"
 	base_rtp = 0.943366
-	rules_text = "You hit below 17, the dealer stands on 17. A natural pays 2.5x."
+	rules_text = "Hit or stand. Dealer stands on 17. Natural pays 2.5x."
 
 
 func _build_board(container: VBoxContainer) -> void:
-	var panel := UIKit.panel(UIKit.PANEL_HI, 14, 2)
+	var panel := UIKit.panel(UIKit.FELT, 14, 2)
 	var col := UIKit.vbox(8)
 
 	var dealer_head := UIKit.hbox(8)
@@ -57,8 +61,27 @@ func _build_board(container: VBoxContainer) -> void:
 	panel.add_child(col)
 	container.add_child(panel)
 
+	var actions := UIKit.hbox(12)
+	actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hit_btn = UIKit.primary_button("HIT", 18, UIKit.BLUE)
+	_hit_btn.custom_minimum_size = Vector2(140, 48)
+	_hit_btn.disabled = true
+	_hit_btn.pressed.connect(_on_hit)
+	actions.add_child(_hit_btn)
+	_stand_btn = UIKit.primary_button("STAND", 18, UIKit.ORANGE)
+	_stand_btn.custom_minimum_size = Vector2(140, 48)
+	_stand_btn.disabled = true
+	_stand_btn.pressed.connect(_on_stand)
+	actions.add_child(_stand_btn)
+	container.add_child(actions)
 
-## A card is a rank index 0..12; the value table maps it to blackjack points.
+	_hint = UIKit.label("Press DEAL to start a hand.", 13, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.add_child(_hint)
+	if play_button != null:
+		play_button.text = "DEAL"
+
+
 func _deal_card() -> int:
 	return randi() % 13
 
@@ -77,17 +100,45 @@ func _hand_value(cards: Array) -> int:
 	return total
 
 
-func _render(row: HBoxContainer, cards: Array, hide_first: bool = false) -> void:
+func _render(row: HBoxContainer, cards: Array, hide_hole: bool = false) -> void:
 	for child in row.get_children():
 		row.remove_child(child)
 		child.queue_free()
 	for i in range(cards.size()):
 		var c := UIKit.card(58, 82)
-		if hide_first and i == 1:
+		if hide_hole and i == 1:
 			UIKit.set_card_back(c)
 		else:
 			UIKit.set_card(c, int(cards[i]), randi() % 4)
 		row.add_child(c)
+
+
+func _set_actions(enabled: bool) -> void:
+	_hit_btn.disabled = not enabled
+	_stand_btn.disabled = not enabled
+
+
+func _on_hit() -> void:
+	if not _awaiting:
+		return
+	_player.append(_deal_card())
+	var pval := _hand_value(_player)
+	_render(_player_row, _player)
+	_player_total.text = str(pval)
+	AudioManager.play_tick()
+	if pval > 21 or _player.size() >= MAX_CARDS:
+		_stood = true
+		_awaiting = false
+		_set_actions(false)
+
+
+func _on_stand() -> void:
+	if not _awaiting:
+		return
+	_stood = true
+	_awaiting = false
+	_set_actions(false)
+	AudioManager.play_click()
 
 
 func play_once() -> void:
@@ -96,31 +147,33 @@ func play_once() -> void:
 		stop_auto()
 		return
 
-	var staked := bet
-	var player: Array = [_deal_card(), _deal_card()]
-	var dealer: Array = [_deal_card(), _deal_card()]
+	_staked = bet
+	_player = [_deal_card(), _deal_card()]
+	_dealer = [_deal_card(), _deal_card()]
+	_stood = false
 
-	_render(_player_row, player)
-	_render(_dealer_row, dealer, true)
-	_player_total.text = str(_hand_value(player))
+	_render(_player_row, _player)
+	_render(_dealer_row, _dealer, true)
+	_player_total.text = str(_hand_value(_player))
 	_dealer_total.text = "?"
-	set_result("Dealing...", UIKit.DIM)
-	await wait(0.22)
+	set_result("Your move...", UIKit.CYAN)
+	_hint.text = "HIT or STAND"
+	AudioManager.play_chip_place()
+	await wait(0.2)
 	if not is_inside_tree():
 		return
 
-	var pval := _hand_value(player)
-	var dval := _hand_value(dealer)
+	var pval := _hand_value(_player)
+	var dval := _hand_value(_dealer)
 
-	# Naturals resolve before anyone draws.
 	if pval == 21 or dval == 21:
-		_render(_dealer_row, dealer)
+		_render(_dealer_row, _dealer)
 		_dealer_total.text = str(dval)
 		if pval == 21 and dval == 21:
 			settle_push("Both blackjack - push.")
 			return
 		if pval == 21:
-			var natural := staked * NATURAL_PAYS
+			var natural := _staked * NATURAL_PAYS
 			finish_round(natural, LOSS_RATE, true)
 			set_result("BLACKJACK  +%s" % Fmt.chips(natural), UIKit.GOLD, "trophy")
 			celebrate(natural, NATURAL_PAYS)
@@ -131,36 +184,47 @@ func play_once() -> void:
 		set_result("Dealer blackjack.", UIKit.DIM)
 		return
 
-	while pval < 17 and player.size() < MAX_CARDS:
-		player.append(_deal_card())
-		pval = _hand_value(player)
-		_render(_player_row, player)
-		_player_total.text = str(pval)
-		await wait(0.18)
+	if auto:
+		while pval < 17 and _player.size() < MAX_CARDS:
+			_player.append(_deal_card())
+			pval = _hand_value(_player)
+			_render(_player_row, _player)
+			_player_total.text = str(pval)
+			await wait(0.15)
+			if not is_inside_tree():
+				return
+	else:
+		_awaiting = true
+		_set_actions(true)
+		while _awaiting and is_inside_tree():
+			await get_tree().process_frame
 		if not is_inside_tree():
 			return
+		pval = _hand_value(_player)
 
 	if pval > 21:
-		_render(_dealer_row, dealer)
+		_render(_dealer_row, _dealer)
 		_dealer_total.text = str(dval)
 		finish_round(0.0, LOSS_RATE, false)
 		set_result("Bust at %d." % pval, UIKit.DIM)
+		_hint.text = "Press DEAL for another hand."
 		return
 
-	_render(_dealer_row, dealer)
+	_render(_dealer_row, _dealer)
 	_dealer_total.text = str(dval)
-	await wait(0.2)
-	while dval < 17 and dealer.size() < MAX_CARDS:
-		dealer.append(_deal_card())
-		dval = _hand_value(dealer)
-		_render(_dealer_row, dealer)
+	await wait(0.18)
+	while dval < 17 and _dealer.size() < MAX_CARDS:
+		_dealer.append(_deal_card())
+		dval = _hand_value(_dealer)
+		_render(_dealer_row, _dealer)
 		_dealer_total.text = str(dval)
+		AudioManager.play_tick()
 		await wait(0.18)
 		if not is_inside_tree():
 			return
 
 	if dval > 21 or pval > dval:
-		var payout := staked * WIN_PAYS
+		var payout := _staked * WIN_PAYS
 		finish_round(payout, LOSS_RATE, false)
 		set_result("You win  +%s" % Fmt.chips(payout), UIKit.GREEN, "check")
 		celebrate(payout, WIN_PAYS)
@@ -169,3 +233,10 @@ func play_once() -> void:
 	else:
 		finish_round(0.0, LOSS_RATE, false)
 		set_result("Dealer wins with %d." % dval, UIKit.DIM)
+	_hint.text = "Press DEAL for another hand."
+
+
+func stop_auto() -> void:
+	super.stop_auto()
+	_awaiting = false
+	_set_actions(false)
