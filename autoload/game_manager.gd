@@ -24,13 +24,15 @@ signal toast(text: String, color: Color)
 ## No stack of upgrades may push a minigame to or past break-even.
 const MAX_EFFECTIVE_RTP := 0.99
 const BASE_START_CHIPS := 250.0
-const PRESTIGE_REQUIREMENT := 10000.0
+const BASE_PRESTIGE_REQUIREMENT := 10000.0
 const EXP_CURVE_BASE := 50.0
 const EXP_CURVE_POWER := 1.55
 
 # --- run state (wiped by prestige) -----------------------------------------
 var chips: float = BASE_START_CHIPS:
 	set(value):
+		if not is_finite(value):
+			value = 0.0
 		chips = maxf(value, 0.0)
 		chips_changed.emit(chips)
 
@@ -120,14 +122,14 @@ func spend_chips(amount: float) -> bool:
 
 
 func add_gold_chips(amount: float) -> void:
-	if amount <= 0.0:
+	if amount <= 0.0 or not is_finite(amount):
 		return
 	gold_chips += amount
 	gold_chips_changed.emit(gold_chips)
 
 
 func spend_gold_chips(amount: float) -> bool:
-	if amount < 0.0 or gold_chips < amount:
+	if amount < 0.0 or not is_finite(amount) or gold_chips < amount:
 		return false
 	gold_chips -= amount
 	gold_chips_changed.emit(gold_chips)
@@ -264,8 +266,13 @@ func record_result(payout: float, wager: float, is_jackpot: bool) -> void:
 # PRESTIGE
 # ===========================================================================
 
+## Scales gently so later prestiges still feel like a goal without becoming absurd.
+func prestige_requirement() -> float:
+	return BASE_PRESTIGE_REQUIREMENT * (1.0 + 0.18 * float(prestige_count))
+
+
 func can_prestige() -> bool:
-	return run_chips_earned >= PRESTIGE_REQUIREMENT
+	return run_chips_earned >= prestige_requirement()
 
 
 func pending_gold_chips() -> float:
@@ -288,7 +295,7 @@ func do_prestige() -> bool:
 
 	prestige_changed.emit(prestige_count)
 	stats_changed.emit()
-	notify_toast("PRESTIGE %d  ->  +%s gold chips" % [prestige_count, Fmt.chips(gained)], UIKit.PURPLE)
+	notify_toast("PRESTIGE %d  →  +%s gold chips" % [prestige_count, Fmt.chips(gained)], UIKit.PURPLE)
 	Achievements.check_all()
 	return true
 
