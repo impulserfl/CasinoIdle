@@ -103,14 +103,15 @@ func _buy(id: String) -> void:
 		_refresh()
 
 
-## Two-step confirm: prestige throws away the whole run, so one stray click
-## should not be able to do it.
 func _on_prestige_pressed() -> void:
 	if not GameManager.can_prestige():
+		AudioManager.play_error()
 		return
-	if not _confirming:
+	# Respect Settings: skip two-step confirm when disabled.
+	if Settings.confirm_prestige and not _confirming:
 		_confirming = true
 		_refresh()
+		AudioManager.play_click()
 		await get_tree().create_timer(4.0).timeout
 		if _confirming:
 			_confirming = false
@@ -144,7 +145,10 @@ func _refresh() -> void:
 		_requirement_label.text = "Resets chips, level, skills and the casino floor. " \
 			+ "Gold chips, prestige upgrades and achievements are kept."
 		_prestige_button.disabled = false
-		_prestige_button.text = "TAP AGAIN TO CONFIRM" if _confirming else "PRESTIGE"
+		if Settings.confirm_prestige:
+			_prestige_button.text = "TAP AGAIN TO CONFIRM" if _confirming else "PRESTIGE"
+		else:
+			_prestige_button.text = "PRESTIGE"
 	else:
 		var short := req - GameManager.run_chips_earned
 		_requirement_label.text = "Earn %s more chips this run to unlock prestige (%s of %s)." % [
