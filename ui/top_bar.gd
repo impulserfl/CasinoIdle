@@ -1,7 +1,6 @@
 extends PanelContainer
 
-## Persistent status strip: bankroll, income, level progress and the meta
-## currencies, plus whatever buff or event timer is live.
+## Persistent status strip with glass chrome and gold edge.
 
 const REFRESH_INTERVAL := 0.1
 
@@ -20,20 +19,22 @@ var _refresh_accumulator := 0.0
 
 
 func _ready() -> void:
-	var sb := UIKit.stylebox(UIKit.PANEL, 14, 1, UIKit.PANEL_GLOW)
-	sb.content_margin_left = 18
-	sb.content_margin_right = 18
-	sb.content_margin_top = 12
-	sb.content_margin_bottom = 12
+	var sb := UIKit.glass_stylebox(18)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	sb.border_color = Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.35)
+	sb.set_border_width_all(1)
 	add_theme_stylebox_override("panel", sb)
 
-	var row := UIKit.hbox(18)
+	var row := UIKit.hbox(20)
 	add_child(row)
 
-	var chips_box := UIKit.hbox(10)
-	chips_box.add_child(UIKit.icon("chip", 34))
-	var chips_col := UIKit.vbox(1)
-	_chips_label = UIKit.numeral("0", 28, UIKit.GOLD)
+	var chips_box := UIKit.hbox(12)
+	chips_box.add_child(UIKit.icon("chip", 36))
+	var chips_col := UIKit.vbox(2)
+	_chips_label = UIKit.numeral("0", 30, UIKit.GOLD)
 	_income_label = UIKit.label("+0/s", 13, UIKit.GREEN)
 	chips_col.add_child(_chips_label)
 	chips_col.add_child(_income_label)
@@ -42,17 +43,17 @@ func _ready() -> void:
 
 	row.add_child(_divider())
 
-	var exp_box := UIKit.vbox(4)
-	exp_box.custom_minimum_size = Vector2(230, 0)
+	var exp_box := UIKit.vbox(5)
+	exp_box.custom_minimum_size = Vector2(240, 0)
 	exp_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var exp_head := UIKit.hbox(8)
-	_level_label = UIKit.label("Level 1", 17, UIKit.BLUE)
+	_level_label = UIKit.label("Level 1", 18, UIKit.BLUE)
 	_exp_label = UIKit.label("0 / 24", 12, UIKit.DIM, HORIZONTAL_ALIGNMENT_RIGHT)
 	_exp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	exp_head.add_child(_level_label)
 	exp_head.add_child(_exp_label)
 	exp_box.add_child(exp_head)
-	_exp_bar = UIKit.progress_bar(UIKit.BLUE, 10)
+	_exp_bar = UIKit.progress_bar(UIKit.BLUE, 11)
 	exp_box.add_child(_exp_bar)
 	row.add_child(exp_box)
 
@@ -88,25 +89,22 @@ func _ready() -> void:
 func _divider() -> Control:
 	var v := VSeparator.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = UIKit.PANEL_EDGE
+	sb.bg_color = Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.2)
 	sb.content_margin_left = 1
 	sb.content_margin_right = 1
 	v.add_theme_stylebox_override("separator", sb)
 	return v
 
 
-## Icon plus value; returns the value label, with the row as its parent.
 func _stat(icon_name: String, color: Color) -> Label:
 	var box := UIKit.hbox(6)
 	box.add_child(UIKit.icon(icon_name, 24))
-	var l := UIKit.numeral("0", 17, color)
+	var l := UIKit.numeral("0", 18, color)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	box.add_child(l)
 	return l
 
 
-## The bankroll changes every frame, so this polls on a throttle rather than
-## reacting to chips_changed.
 func _process(delta: float) -> void:
 	_refresh_accumulator += delta
 	if _refresh_accumulator < REFRESH_INTERVAL:
