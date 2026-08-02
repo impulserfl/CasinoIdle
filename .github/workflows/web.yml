@@ -120,12 +120,30 @@ jobs:
       - name: Parse-check every script
         run: |
           set -uo pipefail
+
+          # Checking a file in isolation means autoload singletons are not
+          # registered yet, so every reference to one reports "Identifier not
+          # found". Those are expected; anything else is a real error. The list
+          # comes from project.godot so a typo'd singleton still fails.
+          AUTOLOADS=$(python3 - <<'PY'
+          import re, pathlib
+          s = pathlib.Path('project.godot').read_text(encoding='utf-8')
+          m = re.search(r'^\[autoload\]$(.*?)(?=^\[|\Z)', s, re.S | re.M)
+          names = re.findall(r'^(\w+)=', m.group(1), re.M) if m else []
+          print('|'.join(names) if names else '__no_autoloads__')
+          PY
+          )
+          echo "ignoring unresolved singletons: $AUTOLOADS"
+
           fail=0
           while IFS= read -r f; do
             rel="res://${f#./}"
             out=$(godot --headless --check-only --script "$rel" 2>&1 || true)
-            if printf '%s' "$out" | grep -qE "Parse Error|Compile Error"; then
-              echo "::error file=${f#./}::$(printf '%s' "$out" | grep -E 'Parse Error|Compile Error' | head -1)"
+            real=$(printf '%s\n' "$out" \
+              | grep -E "Parse Error|Compile Error" \
+              | grep -vE "Identifier not found: ($AUTOLOADS)\b" || true)
+            if [ -n "$real" ]; then
+              echo "::error file=${f#./}::$(printf '%s' "$real" | head -1)"
               echo "--- ${f#./} ---"
               printf '%s\n' "$out" | grep -E "Parse Error|Compile Error|at:" | head -6
               fail=1
