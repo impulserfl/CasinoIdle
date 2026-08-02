@@ -7,6 +7,12 @@ const SlotMachine := preload("res://minigames/slot_machine.gd")
 const Roulette := preload("res://minigames/roulette.gd")
 const Dice := preload("res://minigames/dice.gd")
 const ScratchCards := preload("res://minigames/scratch_cards.gd")
+const HigherLower := preload("res://minigames/higher_lower.gd")
+const Blackjack := preload("res://minigames/blackjack.gd")
+const Plinko := preload("res://minigames/plinko.gd")
+const CoinFlip := preload("res://minigames/coin_flip.gd")
+const MoneyWheel := preload("res://minigames/money_wheel.gd")
+const Crash := preload("res://minigames/crash.gd")
 
 const TopBar := preload("res://ui/top_bar.gd")
 const CasinoPanel := preload("res://ui/casino_panel.gd")
@@ -21,7 +27,6 @@ const PLAY_TAB_INDEX := 1
 var _toast_box: VBoxContainer
 var _minigames: Array[Minigame] = []
 var _main_tabs: TabContainer
-var _reset_confirming := false
 
 
 func _ready() -> void:
@@ -105,11 +110,22 @@ func _build_tabs() -> Control:
 
 
 func _build_play_tab() -> Control:
-	var tabs := _tab_container(15)
+	var tabs := _tab_container(14)
 	tabs.tab_changed.connect(_on_game_tab_changed)
 
-	for entry in [[SlotMachine, "🎰 Slots"], [Roulette, "🎡 Roulette"],
-			[Dice, "🎲 Dice"], [ScratchCards, "🎫 Scratch"]]:
+	var games: Array = [
+		[SlotMachine, "🎰 Slots"],
+		[Roulette, "🎡 Roulette"],
+		[Dice, "🎲 Dice"],
+		[ScratchCards, "🎫 Scratch"],
+		[HigherLower, "🃏 Hi-Lo"],
+		[Blackjack, "🂡 Blackjack"],
+		[Plinko, "🔵 Plinko"],
+		[CoinFlip, "🪙 Coin Flip"],
+		[MoneyWheel, "🎯 Wheel"],
+		[Crash, "📈 Crash"],
+	]
+	for entry in games:
 		var game_script: GDScript = entry[0]
 		var game: Minigame = game_script.new()
 		game.name = String(entry[1])
@@ -150,17 +166,13 @@ func _build_footer() -> Control:
 		"Autosaves every %ds  ·  offline earnings while closed" % int(SaveManager.AUTOSAVE_INTERVAL),
 		12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("CasinoIdle v0.3.0", 12, UIKit.DIM))
+	row.add_child(UIKit.label("CasinoIdle v0.3.1", 12, UIKit.DIM))
 	return row
 
 
 func _on_save_pressed() -> void:
 	SaveManager.save_game(false)
 
-
-# ===========================================================================
-# TOASTS
-# ===========================================================================
 
 func _build_toast_layer() -> void:
 	var holder := Control.new()
@@ -196,10 +208,6 @@ func _show_toast(text: String, color: Color) -> void:
 	tw.tween_property(panel, "modulate:a", 0.0, 0.6)
 	tw.tween_callback(panel.queue_free)
 
-
-# ===========================================================================
-# WELCOME BACK
-# ===========================================================================
 
 func _show_offline_report() -> void:
 	var report := SaveManager.claim_offline_report()
