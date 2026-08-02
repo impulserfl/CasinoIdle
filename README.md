@@ -1,5 +1,7 @@
 # CasinoIdle
 
+### ▶ [Play it in your browser](https://impulserfl.github.io/CasinoIdle/)
+
 An incremental idle casino sim built with **Godot 4**.
 
 You don't just play the machines — you **own the floor**. Properties earn chips
@@ -36,9 +38,56 @@ Casino floor  ──earns──▶  Chips  ──wagered──▶  EXP  ──�
 
 ### How to run
 
+**In a browser:** <https://impulserfl.github.io/CasinoIdle/> — rebuilt and
+redeployed automatically on every push to `main`.
+
+**Locally:**
+
 1. Clone the repo
 2. Open the project in **Godot 4.3+**
 3. Press Play
+
+---
+
+## Build & CI
+
+`.github/workflows/web.yml` runs on every push and PR to `main`. It installs a
+real Godot 4.3 binary plus export templates and then:
+
+1. **Verifies the balance tables** — `tools/verify_balance.py`
+2. **Imports the project**
+3. **Smoke-tests it headlessly** — boots the actual main scene for 600 frames
+   and fails the build if Godot logs any script error. This is the real
+   compile/run check: every autoload, panel and minigame `_ready()` executes.
+4. **Checks the save round-trip** — asserts a `version=2` save was written on
+   shutdown
+5. **Exports the web build** and verifies `index.{html,js,wasm,pck}` are non-empty
+6. **Deploys to GitHub Pages** (only from `main`)
+
+### One-time setup
+
+Pages must be pointed at Actions or the deploy step fails:
+
+> **Settings → Pages → Build and deployment → Source: _GitHub Actions_**
+
+### Web-specific details worth knowing
+
+- **Renderer.** Browsers only have WebGL 2, so `project.godot` sets
+  `renderer/rendering_method.web="gl_compatibility"`. Desktop stays on Forward+.
+  A Forward+ web build exports fine and then renders nothing.
+- **Threads are off** (`variant/thread_support=false`). Threaded builds need
+  `SharedArrayBuffer`, which needs COOP/COEP headers, which GitHub Pages does
+  not send. A threaded build fails to boot on Pages.
+- **Emoji fonts.** The UI is entirely emoji — reels, dice, property icons. A
+  browser gives Godot no system fonts, so CI fetches Noto Emoji into
+  `assets/fonts/` and `autoload/font_setup.gd` registers it as a fallback.
+  It is not committed (see `.gitignore`); a plain desktop checkout just uses the
+  OS emoji font, and the autoload no-ops when the file is absent.
+- **Saving.** Closing a browser tab never delivers `WM_CLOSE_REQUEST`, so
+  `SaveManager` also saves on focus-out, app-pause and exit-tree, on top of the
+  20s autosave.
+- **`export_presets.cfg` is committed** (most Godot `.gitignore` templates
+  exclude it) because headless export needs the Web preset to exist.
 
 ---
 

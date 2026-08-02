@@ -2,7 +2,7 @@
 .godot/
 *.translation
 export.cfg
-export_presets.cfg
+# export_presets.cfg IS committed -- headless CI export needs the Web preset.
 
 # Imported resources
 *.import
@@ -24,7 +24,13 @@ Thumbs.db
 *.swp
 *~
 
+# Emoji fallback font: fetched by CI at build time, not committed (see
+# autoload/font_setup.gd). Desktop falls back to system emoji fonts.
+assets/fonts/*.ttf
+assets/fonts/*.otf
+
 # Builds / exports
+build/
 builds/
 export/
 *.exe

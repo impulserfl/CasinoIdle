@@ -1,0 +1,137 @@
+name: Build & Deploy Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two Pages deploys race each other.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  build:
+    name: Validate & export
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL -o godot.zip "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          godot --version
+
+      - name: Install export templates
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL -o templates.tpz "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q templates.tpz
+          TARGET="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$TARGET"
+          mv templates/* "$TARGET/"
+          ls "$TARGET" | head
+
+      # Browsers expose no system fonts, so the emoji-driven UI needs a bundled
+      # fallback or the whole game renders as tofu boxes. Fetched here rather
+      # than committed to keep a binary out of the repo.
+      - name: Fetch emoji fallback font
+        run: |
+          set -euo pipefail
+          mkdir -p assets/fonts
+          URL="https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/NotoEmoji-Regular.ttf"
+          curl -fsSL -o assets/fonts/NotoEmoji-Regular.ttf "$URL"
+          SIZE=$(stat -c%s assets/fonts/NotoEmoji-Regular.ttf)
+          echo "emoji font: $SIZE bytes"
+          if [ "$SIZE" -lt 50000 ]; then
+            echo "::error::Emoji font download looks wrong ($SIZE bytes) -- got an error page?"
+            head -c 400 assets/fonts/NotoEmoji-Regular.ttf
+            exit 1
+          fi
+
+      - name: Verify balance tables
+        run: python3 tools/verify_balance.py
+
+      # Two passes: the first generates .import files, the second resolves any
+      # resources that only became loadable once those existed.
+      - name: Import project
+        run: |
+          godot --headless --import 2>&1 | tail -30 || true
+          godot --headless --import 2>&1 | tail -30 || true
+
+      - name: Smoke test (headless run of the real main scene)
+        run: |
+          set -uo pipefail
+          godot --headless --quit-after 600 2>&1 | tee run.log || true
+          echo "----- scanning for script errors -----"
+          if grep -nE "SCRIPT ERROR|Parse Error|Nonexistent function|Invalid call|Invalid access|Invalid get index|Invalid set index|Cannot call method|Trying to assign" run.log; then
+            echo "::error::Godot reported script errors during the headless run"
+            exit 1
+          fi
+          echo "no script errors"
+
+      - name: Verify the save round-trip actually happened
+        run: |
+          set -euo pipefail
+          SAVE="$HOME/.local/share/godot/app_userdata/CasinoIdle/casino_idle_save.cfg"
+          if [ ! -f "$SAVE" ]; then
+            echo "::error::No save file written -- the shutdown save path did not run"
+            ls -R "$HOME/.local/share/godot/app_userdata" || true
+            exit 1
+          fi
+          echo "--- $SAVE ---"
+          cat "$SAVE"
+          grep -q "version=2" "$SAVE" || { echo "::error::save missing version=2"; exit 1; }
+
+      - name: Export web build
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          godot --headless --export-release "Web" build/web/index.html 2>&1 | tail -40
+          touch build/web/.nojekyll
+          ls -la build/web
+
+      - name: Verify export output
+        run: |
+          set -euo pipefail
+          for f in index.html index.js index.wasm index.pck; do
+            if [ ! -s "build/web/$f" ]; then
+              echo "::error::build/web/$f missing or empty"
+              ls -la build/web
+              exit 1
+            fi
+          done
+          echo "web build OK ($(du -sh build/web | cut -f1))"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy to Pages
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -197,10 +197,16 @@ func claim_offline_report() -> Dictionary:
 # ===========================================================================
 
 func _notification(what: int) -> void:
-	# WM_CLOSE_REQUEST covers desktop; WM_GO_BACK_REQUEST covers Android back;
-	# PREDELETE catches the rest of the teardown paths.
-	if what == NOTIFICATION_WM_CLOSE_REQUEST \
-			or what == NOTIFICATION_WM_GO_BACK_REQUEST \
-			or what == NOTIFICATION_CRASH:
-		if _loaded:
-			save_game(true)
+	# Closing a browser tab never delivers WM_CLOSE_REQUEST, so the web build
+	# relies on the focus-out and exit-tree paths below plus the 20s autosave.
+	# EXIT_TREE is safe here: autoloads tear down in reverse declaration order
+	# and SaveManager is declared last, so everything it reads still exists.
+	match what:
+		NOTIFICATION_WM_CLOSE_REQUEST, \
+		NOTIFICATION_WM_GO_BACK_REQUEST, \
+		NOTIFICATION_CRASH, \
+		NOTIFICATION_APPLICATION_PAUSED, \
+		NOTIFICATION_APPLICATION_FOCUS_OUT, \
+		NOTIFICATION_EXIT_TREE:
+			if _loaded:
+				save_game(true)

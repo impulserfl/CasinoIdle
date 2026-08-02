@@ -15,6 +15,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+FontSetup="*res://autoload/font_setup.gd"
 GameManager="*res://autoload/game_manager.gd"
 Upgrades="*res://autoload/upgrades.gd"
 Casino="*res://autoload/casino.gd"
@@ -32,3 +33,7 @@ window/stretch/aspect="expand"
 [rendering]
 
 renderer/rendering_method="forward_plus"
+; Browsers only have WebGL 2, so the web build must use the Compatibility
+; renderer. Forward+ exports but renders nothing in a browser.
+renderer/rendering_method.web="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
