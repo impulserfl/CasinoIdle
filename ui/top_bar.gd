@@ -13,18 +13,26 @@ var _event_label: Label
 
 
 func _ready() -> void:
-	add_theme_stylebox_override("panel", UIKit.stylebox(UIKit.PANEL, 12, 1))
-	var row := UIKit.hbox(18)
+	var sb := UIKit.stylebox(UIKit.PANEL, 14, 1, UIKit.PANEL_GLOW)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 12
+	add_theme_stylebox_override("panel", sb)
+
+	var row := UIKit.hbox(20)
 	add_child(row)
 
-	var chips_box := UIKit.vbox(0)
-	_chips_label = UIKit.label("0", 28, UIKit.GOLD)
+	var chips_box := UIKit.vbox(2)
+	_chips_label = UIKit.label("0", 30, UIKit.GOLD)
+	_chips_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	_chips_label.add_theme_constant_override("outline_size", 4)
 	_income_label = UIKit.label("+0/s", 14, UIKit.GREEN)
 	chips_box.add_child(_chips_label)
 	chips_box.add_child(_income_label)
 	row.add_child(chips_box)
 
-	var event_box := UIKit.vbox(0)
+	var event_box := UIKit.vbox(2)
 	_lucky_label = UIKit.label("", 12, UIKit.GREEN)
 	_event_label = UIKit.label("", 12, UIKit.ORANGE)
 	event_box.add_child(_lucky_label)
@@ -33,8 +41,8 @@ func _ready() -> void:
 
 	row.add_child(_divider())
 
-	var exp_box := UIKit.vbox(2)
-	exp_box.custom_minimum_size = Vector2(220, 0)
+	var exp_box := UIKit.vbox(4)
+	exp_box.custom_minimum_size = Vector2(240, 0)
 	exp_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var exp_head := UIKit.hbox(8)
 	_level_label = UIKit.label("Level 1", 18, UIKit.BLUE)
@@ -43,7 +51,7 @@ func _ready() -> void:
 	exp_head.add_child(UIKit.spacer())
 	exp_head.add_child(_exp_label)
 	exp_box.add_child(exp_head)
-	_exp_bar = UIKit.progress_bar(UIKit.BLUE, 8)
+	_exp_bar = UIKit.progress_bar(UIKit.BLUE, 10)
 	exp_box.add_child(_exp_bar)
 	row.add_child(exp_box)
 
@@ -98,9 +106,9 @@ func _process(_delta: float) -> void:
 	elif cd > 0.0:
 		var m := int(cd) / 60
 		var s := int(cd) % 60
-		_event_label.text = "⏳ Event %d:%02d" % [m, s]
+		_event_label.text = "⏳ %d:%02d" % [m, s]
 	else:
-		_event_label.text = "⏳ Event armed"
+		_event_label.text = ""
 
 
 func _on_experience_changed(current: float, needed: float, level: int) -> void:
