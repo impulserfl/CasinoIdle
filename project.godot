@@ -7,8 +7,8 @@ config_version=5
 [application]
 
 config/name="CasinoIdle"
-config/description="Incremental idle casino sim: run a casino floor for passive income, play interactive tables for EXP and jackpots, prestige for permanent bonuses."
-config/version="0.8.0"
+config/description="Incremental idle casino sim with interactive tables, prestige, and a midnight-gold floor."
+config/version="0.9.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
