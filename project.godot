@@ -8,8 +8,8 @@ config_version=5
 
 config/name="CasinoIdle"
 config/description="Incremental idle casino sim with interactive tables, prestige, and a midnight-gold floor."
-config/version="0.9.0"
-run/main_scene="res://scenes/main.tscn"
+config/version="1.0.0"
+run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
 
