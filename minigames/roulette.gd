@@ -79,7 +79,7 @@ func _build_number_grid() -> Control:
 	grid.add_theme_constant_override("h_separation", 3)
 	grid.add_theme_constant_override("v_separation", 3)
 	# Standard table layout: top row 3,6,9..., middle 2,5,8..., bottom 1,4,7...
-	for offset in [3, 2, 1]:
+	for offset: int in [3, 2, 1]:
 		for col in range(12):
 			grid.add_child(_make_number_button(col * 3 + offset))
 	row.add_child(grid)

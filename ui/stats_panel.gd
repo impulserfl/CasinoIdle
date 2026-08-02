@@ -23,6 +23,15 @@ const STAT_ROWS: Array[Dictionary] = [
 	{"key": "play_time",             "label": "Time played",             "kind": "time"},
 ]
 
+## Typed so `for row in GAME_ROWS` yields Dictionary rather than Variant --
+## an untyped array literal here makes `var x := ...` uninferrable downstream.
+const GAME_ROWS: Array[Dictionary] = [
+	{"id": "slots",    "label": "Slot spins"},
+	{"id": "roulette", "label": "Roulette spins"},
+	{"id": "dice",     "label": "Dice rolls"},
+	{"id": "scratch",  "label": "Cards scratched"},
+]
+
 
 func _ready() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -85,12 +94,11 @@ func _build_win_rate_block() -> Control:
 	grid.add_theme_constant_override("h_separation", 30)
 	grid.add_theme_constant_override("v_separation", 6)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for entry in [["slots", "Slot spins"], ["roulette", "Roulette spins"],
-			["dice", "Dice rolls"], ["scratch", "Cards scratched"]]:
-		grid.add_child(UIKit.label(String(entry[1]), 14, UIKit.DIM))
+	for row in GAME_ROWS:
+		grid.add_child(UIKit.label(String(row["label"]), 14, UIKit.DIM))
 		var value := UIKit.label("0", 15, UIKit.TEXT, HORIZONTAL_ALIGNMENT_RIGHT)
 		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_stat_labels["play_" + String(entry[0])] = value
+		_stat_labels["play_" + String(row["id"])] = value
 		grid.add_child(value)
 	panel.add_child(grid)
 	return panel
@@ -154,7 +162,8 @@ func _refresh() -> void:
 				label.text = Fmt.duration(raw)
 
 	var plays: Dictionary = s.get("plays", {})
-	for game_id in ["slots", "roulette", "dice", "scratch"]:
+	for row in GAME_ROWS:
+		var game_id := String(row["id"])
 		var key := "play_" + game_id
 		if _stat_labels.has(key):
 			_stat_labels[key].text = Fmt.commas(float(plays.get(game_id, 0)))

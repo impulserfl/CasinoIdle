@@ -113,6 +113,27 @@ jobs:
           godot --headless --import 2>&1 | tail -30 || true
           godot --headless --import 2>&1 | tail -30 || true
 
+      # GDScript compilation aborts at the first bad file, and a parse failure in
+      # one script cascades into "Nonexistent function 'new'" noise everywhere it
+      # is preloaded. Checking each file on its own surfaces every genuine error
+      # in a single CI run instead of one per push.
+      - name: Parse-check every script
+        run: |
+          set -uo pipefail
+          fail=0
+          while IFS= read -r f; do
+            rel="res://${f#./}"
+            out=$(godot --headless --check-only --script "$rel" 2>&1 || true)
+            if printf '%s' "$out" | grep -qE "Parse Error|Compile Error"; then
+              echo "::error file=${f#./}::$(printf '%s' "$out" | grep -E 'Parse Error|Compile Error' | head -1)"
+              echo "--- ${f#./} ---"
+              printf '%s\n' "$out" | grep -E "Parse Error|Compile Error|at:" | head -6
+              fail=1
+            fi
+          done < <(find . -name '*.gd' -not -path './.godot/*' | sort)
+          if [ "$fail" -eq 0 ]; then echo "all scripts parse cleanly"; fi
+          exit $fail
+
       - name: Smoke test (headless run of the real main scene)
         run: |
           set -uo pipefail
