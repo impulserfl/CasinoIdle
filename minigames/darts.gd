@@ -61,7 +61,6 @@ func _refresh_aim() -> void:
 
 
 func _throw_result() -> Dictionary:
-	# Bias weights slightly toward the aimed zone without guaranteeing it.
 	var entries: Array = []
 	for z in ZONES:
 		var w: float = float(z["weight"])
@@ -80,7 +79,7 @@ func play_once() -> void:
 	var staked := bet
 	set_result("Throwing...", UIKit.DIM)
 	for i in range(8):
-		_board_label.text = ["·", "•", "●", "🎯"][i % 4]
+		_board_label.text = [".", "•", "●", "🎯"][i % 4]
 		await wait(0.05)
 		if not is_inside_tree():
 			return
@@ -93,6 +92,9 @@ func play_once() -> void:
 	var payout := staked * mult
 	var loss_p := 0.38
 	var credited := finish_round(payout, loss_p, mult >= 10.0)
+
+	if String(hit["id"]) == "bull":
+		Achievements.notify("bullseye")
 
 	if mult > 0.0:
 		set_result("%s!  +%s" % [hit["name"], Fmt.chips(payout)], UIKit.GREEN)
