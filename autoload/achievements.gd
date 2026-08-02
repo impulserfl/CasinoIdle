@@ -32,7 +32,6 @@ const LIST: Array[Dictionary] = [
 	{"id": "daily_claim",  "name": "Regular Guest",   "icon": "🎁", "desc": "Claim a daily bonus."},
 	{"id": "daily_week",   "name": "Weekly Regular",  "icon": "📅", "desc": "Reach a 7-day daily streak."},
 	{"id": "table_hopper", "name": "Table Hopper",    "icon": "🧳", "desc": "Play 8 different games."},
-	{"id": "high_roller_ach", "name": "Baller",       "icon": "💸", "desc": "Place a single 10,000+ chip wager."},
 ]
 
 var unlocked_ids: Dictionary = {}
@@ -123,5 +122,4 @@ func _test(id: String) -> bool:
 				if int(plays[k]) > 0:
 					kinds += 1
 			return kinds >= 8
-		"high_roller_ach": return float(s.get("total_wagered", 0.0)) >= 10000.0 and false  # fallback
 	return false
