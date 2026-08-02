@@ -1,17 +1,12 @@
 extends Minigame
 
-## European single-zero roulette.
-##
-## The 37-pocket wheel with standard payouts gives a uniform 36/37 = 97.30% RTP
-## on every bet type, so choosing a bet is purely a volatility decision rather
-## than a maths decision. Lowest house edge in the game (2.70%).
+## Interactive European roulette — pick a bet on the layout, then spin.
 
 const POCKETS := 37
 const REDS: Array[int] = [
 	1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
 ]
 
-## type -> [display name, net odds, win probability]
 const OUTSIDE_BETS: Array[Dictionary] = [
 	{"type": "red",    "name": "RED",     "odds": 1, "wins": 18},
 	{"type": "black",  "name": "BLACK",   "odds": 1, "wins": 18},
@@ -26,12 +21,12 @@ const OUTSIDE_BETS: Array[Dictionary] = [
 
 var selected_type := "red"
 var selected_number := 0
-
 var _wheel_label: Label
 var _wheel_panel: PanelContainer
 var _selection_label: Label
 var _number_buttons: Dictionary = {}
 var _outside_buttons: Dictionary = {}
+var _hint: Label
 
 
 func _init() -> void:
@@ -39,7 +34,7 @@ func _init() -> void:
 	game_name = "Roulette"
 	game_icon = "game_roulette"
 	base_rtp = 36.0 / 37.0
-	rules_text = "Single zero. All ten bet types pay exactly 36/37 - the best odds in the house."
+	rules_text = "Place a bet on the layout, then spin. Single zero."
 
 
 static func is_red(n: int) -> bool:
@@ -54,32 +49,36 @@ static func pocket_color(n: int) -> Color:
 
 func _build_board(container: VBoxContainer) -> void:
 	_wheel_panel = UIKit.panel(UIKit.PANEL_HI, 14, 2)
-	_wheel_panel.custom_minimum_size = Vector2(0, 96)
+	_wheel_panel.custom_minimum_size = Vector2(0, 110)
+	var wheel_col := UIKit.vbox(4)
+	wheel_col.add_child(UIKit.icon("game_roulette", 36))
 	_wheel_label = UIKit.numeral("-", 56, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	_wheel_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_wheel_panel.add_child(_wheel_label)
+	wheel_col.add_child(_wheel_label)
+	_wheel_panel.add_child(wheel_col)
 	container.add_child(_wheel_panel)
 
 	_selection_label = UIKit.label("", 15, UIKit.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	container.add_child(_selection_label)
-
 	container.add_child(_build_number_grid())
 	container.add_child(_build_outside_bets())
+	_hint = UIKit.label("Tap a number or outside bet, then SPIN.", 13, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.add_child(_hint)
 	_refresh_selection()
+	if play_button != null:
+		play_button.text = "SPIN"
 
 
 func _build_number_grid() -> Control:
 	var row := UIKit.hbox(4)
-
 	var zero := _make_number_button(0)
 	zero.custom_minimum_size = Vector2(38, 100)
 	row.add_child(zero)
-
 	var grid := GridContainer.new()
 	grid.columns = 12
 	grid.add_theme_constant_override("h_separation", 3)
 	grid.add_theme_constant_override("v_separation", 3)
-	# Standard table layout: top row 3,6,9..., middle 2,5,8..., bottom 1,4,7...
 	for offset: int in [3, 2, 1]:
 		for col in range(12):
 			grid.add_child(_make_number_button(col * 3 + offset))
@@ -116,14 +115,20 @@ func _build_outside_bets() -> Control:
 
 
 func _select_number(n: int) -> void:
+	if busy:
+		return
 	selected_type = "straight"
 	selected_number = n
 	_refresh_selection()
+	AudioManager.play_chip_place()
 
 
 func _select_outside(t: String) -> void:
+	if busy:
+		return
 	selected_type = t
 	_refresh_selection()
+	AudioManager.play_chip_place()
 
 
 func _refresh_selection() -> void:
@@ -134,11 +139,9 @@ func _refresh_selection() -> void:
 		var nb: Button = _number_buttons[n]
 		var picked := selected_type == "straight" and int(n) == selected_number
 		nb.add_theme_color_override("font_color", UIKit.GOLD if picked else UIKit.TEXT)
-
 	if _selection_label != null:
-		_selection_label.text = "Betting %s  -  pays %d:1  -  wins %s of the time" % [
-			_bet_display_name(), _bet_odds(), Fmt.percent(_bet_win_probability(), 1),
-		]
+		_selection_label.text = "Betting %s  -  pays %d:1  -  hits %s" % [
+			_bet_display_name(), _bet_odds(), Fmt.percent(_bet_win_probability(), 1)]
 
 
 func _bet_display_name() -> String:
@@ -170,26 +173,16 @@ func _bet_win_probability() -> float:
 
 func _bet_wins(n: int) -> bool:
 	match selected_type:
-		"straight":
-			return n == selected_number
-		"red":
-			return is_red(n)
-		"black":
-			return n != 0 and not is_red(n)
-		"even":
-			return n != 0 and n % 2 == 0
-		"odd":
-			return n % 2 == 1
-		"low":
-			return n >= 1 and n <= 18
-		"high":
-			return n >= 19 and n <= 36
-		"dozen1":
-			return n >= 1 and n <= 12
-		"dozen2":
-			return n >= 13 and n <= 24
-		"dozen3":
-			return n >= 25 and n <= 36
+		"straight": return n == selected_number
+		"red": return is_red(n)
+		"black": return n != 0 and not is_red(n)
+		"even": return n != 0 and n % 2 == 0
+		"odd": return n % 2 == 1
+		"low": return n >= 1 and n <= 18
+		"high": return n >= 19 and n <= 36
+		"dozen1": return n >= 1 and n <= 12
+		"dozen2": return n >= 13 and n <= 24
+		"dozen3": return n >= 25 and n <= 36
 	return false
 
 
@@ -210,28 +203,29 @@ func play_once() -> void:
 	var staked := bet
 	var result := randi() % POCKETS
 	set_result("No more bets...", UIKit.DIM)
+	_hint.text = "Ball is rolling..."
+	AudioManager.play_spin()
 
-	# Decelerating ball: ticks get progressively slower.
 	var delay := 0.03
-	for i in range(22):
+	for i in range(24):
 		_show_pocket(randi() % POCKETS)
+		if i % 3 == 0:
+			AudioManager.play_tick()
 		await wait(delay)
 		if not is_inside_tree():
 			return
-		delay *= 1.12
+		delay *= 1.11
 
 	_show_pocket(result)
 	FX.pulse(_wheel_panel, 1.06, 0.25)
+	AudioManager.play_tick()
 
 	var won := _bet_wins(result)
 	var payout := staked * float(_bet_odds() + 1) if won else 0.0
 	var loss_probability := 1.0 - _bet_win_probability()
-
 	if won and selected_type == "straight" and result == 0:
 		Achievements.notify("zero_hero")
-
 	var credited := finish_round(payout, loss_probability, false)
-
 	if won:
 		var multiplier := payout / staked
 		set_result("%d wins  +%s" % [result, Fmt.chips(payout)], UIKit.GREEN, "check")
@@ -240,3 +234,4 @@ func play_once() -> void:
 			stop_auto()
 	elif credited <= 0.0:
 		set_result("%d - no win." % result, UIKit.DIM)
+	_hint.text = "Tap a number or outside bet, then SPIN."
