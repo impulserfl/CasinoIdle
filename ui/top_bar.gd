@@ -1,8 +1,5 @@
 extends PanelContainer
 
-## Persistent resource header. Chips and income tick continuously, so this polls
-## in _process rather than leaning on signals for the fast-moving numbers.
-
 var _chips_label: Label
 var _income_label: Label
 var _level_label: Label
@@ -11,15 +8,14 @@ var _exp_bar: ProgressBar
 var _skill_label: Label
 var _gold_label: Label
 var _prestige_label: Label
+var _lucky_label: Label
 
 
 func _ready() -> void:
 	add_theme_stylebox_override("panel", UIKit.stylebox(UIKit.PANEL, 12, 1))
-
-	var row := UIKit.hbox(22)
+	var row := UIKit.hbox(18)
 	add_child(row)
 
-	# --- chips + income
 	var chips_box := UIKit.vbox(0)
 	_chips_label = UIKit.label("0", 28, UIKit.GOLD)
 	_income_label = UIKit.label("+0/s", 14, UIKit.GREEN)
@@ -27,11 +23,13 @@ func _ready() -> void:
 	chips_box.add_child(_income_label)
 	row.add_child(chips_box)
 
+	_lucky_label = UIKit.label("", 13, UIKit.GREEN)
+	row.add_child(_lucky_label)
+
 	row.add_child(_divider())
 
-	# --- level + exp
 	var exp_box := UIKit.vbox(2)
-	exp_box.custom_minimum_size = Vector2(260, 0)
+	exp_box.custom_minimum_size = Vector2(240, 0)
 	exp_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var exp_head := UIKit.hbox(8)
 	_level_label = UIKit.label("Level 1", 18, UIKit.BLUE)
@@ -45,7 +43,6 @@ func _ready() -> void:
 	row.add_child(exp_box)
 
 	row.add_child(_divider())
-
 	_skill_label = _stat_label("🎓", UIKit.CYAN)
 	row.add_child(_skill_label)
 	_gold_label = _stat_label("💠", UIKit.PURPLE)
@@ -58,6 +55,7 @@ func _ready() -> void:
 	GameManager.skill_points_changed.connect(_on_skill_points_changed)
 	GameManager.gold_chips_changed.connect(_on_gold_changed)
 	GameManager.prestige_changed.connect(_on_prestige_changed)
+	Events.lucky_hour_changed.connect(_on_lucky)
 
 	_on_experience_changed(GameManager.experience, GameManager.exp_to_next(), GameManager.level)
 	_on_skill_points_changed(GameManager.skill_points)
@@ -84,6 +82,14 @@ func _stat_label(icon: String, color: Color) -> Label:
 func _process(_delta: float) -> void:
 	_chips_label.text = Fmt.chips(GameManager.chips)
 	_income_label.text = "+%s" % Fmt.rate(Casino.income_per_second())
+	if Events.lucky_hour_remaining > 0.0:
+		_lucky_label.text = "🍀 x%.1f %ds" % [Events.lucky_hour_mult, int(Events.lucky_hour_remaining)]
+	else:
+		_lucky_label.text = ""
+
+
+func _on_lucky(_active: bool, _mult: float) -> void:
+	pass
 
 
 func _on_experience_changed(current: float, needed: float, level: int) -> void:
