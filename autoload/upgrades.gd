@@ -20,7 +20,7 @@ const SKILLS: Array[Dictionary] = [
 	{
 		"id": "lucky_streak", "name": "Lucky Streak", "icon": "🔥",
 		"desc": "You learn faster at the tables.",
-		"effect": "+8% EXP per rank", "max": 10, "cost_base": 1, "cost_step": 1,
+		"effect": "+8% EXP per rank", "max": 12, "cost_base": 1, "cost_step": 1,
 	},
 	{
 		"id": "floor_manager", "name": "Floor Manager", "icon": "🎩",
@@ -35,7 +35,7 @@ const SKILLS: Array[Dictionary] = [
 	{
 		"id": "quick_hands", "name": "Quick Hands", "icon": "⚡",
 		"desc": "Deal, spin and scratch faster.",
-		"effect": "-8% animation time per rank", "max": 5, "cost_base": 2, "cost_step": 2,
+		"effect": "-8% animation time per rank", "max": 6, "cost_base": 2, "cost_step": 2,
 	},
 	{
 		"id": "high_roller", "name": "High Roller", "icon": "💎",
@@ -47,6 +47,22 @@ const SKILLS: Array[Dictionary] = [
 		"desc": "Keep the floor running properly while you are away.",
 		"effect": "+5% offline rate, +30m offline cap per rank",
 		"max": 10, "cost_base": 2, "cost_step": 2,
+	},
+	# --- new skills ---
+	{
+		"id": "pit_boss", "name": "Pit Boss", "icon": "📋",
+		"desc": "Tighter floor operations. Small but permanent income edge.",
+		"effect": "+4% casino income per rank", "max": 12, "cost_base": 2, "cost_step": 1,
+	},
+	{
+		"id": "comp_cards", "name": "Comp Cards", "icon": "🎫",
+		"desc": "Loyalty perks that make every spin teach you a little more.",
+		"effect": "+5% EXP per rank", "max": 10, "cost_base": 1, "cost_step": 2,
+	},
+	{
+		"id": "chip_runner", "name": "Chip Runner", "icon": "🏃",
+		"desc": "Faster table turnover between auto spins.",
+		"effect": "-6% auto-spin delay per rank", "max": 5, "cost_base": 3, "cost_step": 2,
 	},
 ]
 
@@ -97,15 +113,28 @@ const PRESTIGE: Array[Dictionary] = [
 		"effect": "+3 of each of the first 3 properties per rank",
 		"max": 5, "cost_base": 12, "growth": 2.0,
 	},
+	# --- new prestige upgrades ---
+	{
+		"id": "silver_spoon", "name": "Silver Spoon", "icon": "🥄",
+		"desc": "Born into a slightly better table.",
+		"effect": "+15% starting chips per rank (stacks with Head Start)",
+		"max": 10, "cost_base": 3, "growth": 1.5,
+	},
+	{
+		"id": "time_lord", "name": "Time Lord", "icon": "⏳",
+		"desc": "Offline earnings feel closer to being there.",
+		"effect": "+4% offline efficiency per rank", "max": 10, "cost_base": 4, "growth": 1.55,
+	},
+	{
+		"id": "house_edge", "name": "House Edge", "icon": "📉",
+		"desc": "A permanent, tiny nudge on every table.",
+		"effect": "+0.25% RTP per rank", "max": 8, "cost_base": 6, "growth": 1.65,
+	},
 ]
 
 var skill_levels: Dictionary = {}
 var prestige_levels: Dictionary = {}
 
-
-# ===========================================================================
-# LOOKUPS
-# ===========================================================================
 
 func skill_def(id: String) -> Dictionary:
 	for d in SKILLS:
@@ -129,11 +158,6 @@ func prestige_rank(id: String) -> int:
 	return int(prestige_levels.get(id, 0))
 
 
-# ===========================================================================
-# COSTS
-# ===========================================================================
-
-## Skills use a linear cost ramp: base + step * current_rank.
 func skill_cost(id: String) -> int:
 	var d := skill_def(id)
 	if d.is_empty():
@@ -141,7 +165,6 @@ func skill_cost(id: String) -> int:
 	return int(d["cost_base"]) + int(d["cost_step"]) * skill_level(id)
 
 
-## Prestige upgrades use a geometric ramp: ceil(base * growth^rank).
 func prestige_cost(id: String) -> int:
 	var d := prestige_def(id)
 	if d.is_empty():
@@ -167,10 +190,6 @@ func can_buy_prestige(id: String) -> bool:
 	return not prestige_maxed(id) and GameManager.gold_chips >= float(prestige_cost(id))
 
 
-# ===========================================================================
-# PURCHASE
-# ===========================================================================
-
 func buy_skill(id: String) -> bool:
 	if not can_buy_skill(id):
 		return false
@@ -178,6 +197,7 @@ func buy_skill(id: String) -> bool:
 		return false
 	skill_levels[id] = skill_level(id) + 1
 	changed.emit()
+	AudioManager.play_buy()
 	Achievements.check_all()
 	return true
 
@@ -189,6 +209,7 @@ func buy_prestige(id: String) -> bool:
 		return false
 	prestige_levels[id] = prestige_rank(id) + 1
 	changed.emit()
+	AudioManager.play_buy()
 	Achievements.check_all()
 	return true
 
