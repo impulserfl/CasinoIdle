@@ -1,17 +1,6 @@
 extends Minigame
 
-## Crash: a multiplier climbs until it busts. You cash out at a chosen target.
-##
-## The crash point is drawn as
-##
-##     crash = HOUSE / (1 - r),  r uniform on [0, 1),  floored at 1.0
-##
-## so P(crash >= T) = HOUSE / T for any target T >= HOUSE, and the return is
-## (HOUSE / T) * T = HOUSE exactly — the same 94% whichever target you pick.
-##
-## The old version used 0.96 while declaring 0.94, and carried an "instant
-## crash" branch that could never fire: any target of 1.5x or more already
-## loses on every roll that branch would have caught.
+## Interactive crash — multiplier climbs until it busts. Cash out live or set a target.
 
 const HOUSE := 0.94
 const TARGETS: Array[float] = [1.2, 1.5, 2.0, 3.0, 5.0, 10.0, 25.0]
@@ -20,6 +9,15 @@ var _target := 2.0
 var _mult_label: Label
 var _bar: ProgressBar
 var _target_buttons: Dictionary = {}
+var _cashout_btn: Button
+var _hint: Label
+
+var _climbing := false
+var _cashed := false
+var _cash_at := 0.0
+var _display := 1.0
+var _crash_at := 1.0
+var _staked := 0.0
 
 
 func _init() -> void:
@@ -27,7 +25,7 @@ func _init() -> void:
 	game_name = "Crash"
 	game_icon = "game_crash"
 	base_rtp = HOUSE
-	rules_text = "Every cash-out target returns the same 94%. Higher targets just hit less often."
+	rules_text = "Ride the multiplier. Hit CASH OUT before it crashes."
 
 
 func _build_board(container: VBoxContainer) -> void:
@@ -41,7 +39,13 @@ func _build_board(container: VBoxContainer) -> void:
 	panel.add_child(col)
 	container.add_child(panel)
 
-	container.add_child(UIKit.label("Cash out at", 13, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	_cashout_btn = UIKit.primary_button("CASH OUT", 20, UIKit.GREEN)
+	_cashout_btn.custom_minimum_size = Vector2(0, 52)
+	_cashout_btn.disabled = true
+	_cashout_btn.pressed.connect(_on_cashout)
+	container.add_child(_cashout_btn)
+
+	container.add_child(UIKit.label("Auto cash-out target (optional safety)", 13, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var ids: Array = []
 	var labels: Array = []
 	for t in TARGETS:
@@ -53,10 +57,12 @@ func _build_board(container: VBoxContainer) -> void:
 		_target_buttons[id].pressed.connect(_set_target.bind(float(id)))
 	container.add_child(row)
 
-	container.add_child(UIKit.wrapped(
-		"A target of x%s hits about %s of the time." % [
-			Fmt.chips(_target), Fmt.percent(HOUSE / _target, 1)], 12, UIKit.DIM))
+	_hint = UIKit.label("Press PLAY — then CASH OUT before the crash.", 13, UIKit.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.add_child(_hint)
 	_refresh_targets()
+	if play_button != null:
+		play_button.text = "PLAY"
 
 
 func _set_target(t: float) -> void:
@@ -69,10 +75,16 @@ func _refresh_targets() -> void:
 	UIKit.segmented_select(_target_buttons, _target, UIKit.GOLD)
 
 
-## Crash point with the house edge folded into the numerator.
 func _roll_crash_point() -> float:
 	var r := randf()
 	return maxf(1.0, snappedf(HOUSE / maxf(1.0 - r, 1e-9), 0.01))
+
+
+func _on_cashout() -> void:
+	if _climbing and not _cashed:
+		_cashed = true
+		_cash_at = snappedf(_display, 0.01)
+		AudioManager.play_click()
 
 
 func play_once() -> void:
@@ -81,40 +93,77 @@ func play_once() -> void:
 		stop_auto()
 		return
 
-	var staked := bet
-	var crash_at := _roll_crash_point()
-	var display := 1.0
-	set_result("Climbing...", UIKit.DIM)
+	_staked = bet
+	_crash_at = _roll_crash_point()
+	_display = 1.0
+	_cashed = false
+	_cash_at = 0.0
+	_climbing = true
 	_mult_label.add_theme_color_override("font_color", UIKit.GREEN)
+	_mult_label.text = "x1.00"
+	_bar.value = 0.0
+	set_result("Climbing — cash out anytime!", UIKit.CYAN)
+	_hint.text = "CASH OUT before it crashes!"
+	if not auto:
+		_cashout_btn.disabled = false
+	if play_button != null:
+		play_button.disabled = true
 
-	while display < crash_at and display < _target:
-		display = minf(display + 0.05 + display * 0.03, minf(crash_at, _target))
-		_mult_label.text = "x%.2f" % display
-		_bar.value = clampf((display - 1.0) / maxf(_target - 1.0, 0.01), 0.0, 1.0)
-		await wait(0.05)
+	while _climbing and is_inside_tree():
+		if _cashed:
+			break
+		if auto and _display >= _target:
+			_cashed = true
+			_cash_at = _target
+			break
+		if _display >= _crash_at:
+			break
+		# Auto safety target also applies in manual if reached first
+		if not auto and _display >= _target:
+			_cashed = true
+			_cash_at = _target
+			break
+		_display = minf(_display + 0.04 + _display * 0.025, _crash_at)
+		_mult_label.text = "x%.2f" % _display
+		_bar.value = clampf((_display - 1.0) / maxf(minf(_target, 10.0) - 1.0, 0.01), 0.0, 1.0)
+		await wait(0.045)
 		if not is_inside_tree():
 			return
 
-	# P(this round pays nothing) for the chosen target.
-	var loss_probability := clampf(1.0 - HOUSE / _target, 0.0, 1.0)
+	_climbing = false
+	_cashout_btn.disabled = true
+	if play_button != null:
+		play_button.disabled = false
 
-	if crash_at >= _target:
-		_mult_label.text = "x%.2f" % _target
+	# Effective cash multiplier for RTP accounting uses the target the player
+	# *intended*; live cash-out uses actual cash_at but still within the house curve.
+	var used := _cash_at if _cashed else 0.0
+	var loss_probability := clampf(1.0 - HOUSE / maxf(_target, 1.01), 0.0, 1.0)
+
+	if _cashed and used > 1.0 and used <= _crash_at + 0.001:
+		_mult_label.text = "x%.2f" % used
 		_mult_label.add_theme_color_override("font_color", UIKit.GOLD)
 		_bar.value = 1.0
-		var payout := staked * _target
-		finish_round(payout, loss_probability, _target >= 10.0)
-		set_result("Cashed out at x%s  +%s" % [Fmt.chips(_target), Fmt.chips(payout)],
-			UIKit.GREEN, "check")
-		celebrate(payout, _target)
-		if _target >= 10.0 and Settings.stop_auto_on_jackpot:
+		var payout := _staked * used
+		# Use cash point for loss rate approximation
+		loss_probability = clampf(1.0 - HOUSE / maxf(used, 1.01), 0.0, 1.0)
+		finish_round(payout, loss_probability, used >= 10.0)
+		set_result("Cashed out at x%.2f  +%s" % [used, Fmt.chips(payout)], UIKit.GREEN, "check")
+		celebrate(payout, used)
+		if used >= 10.0 and Settings.stop_auto_on_jackpot:
 			stop_auto()
 	else:
-		_mult_label.text = "x%.2f" % crash_at
+		_mult_label.text = "x%.2f" % _crash_at
 		_mult_label.add_theme_color_override("font_color", UIKit.RED)
 		_bar.value = 0.0
 		if Settings.screen_shake:
 			FX.shake(self, 8.0)
 		var credited := finish_round(0.0, loss_probability, false)
 		if credited <= 0.0:
-			set_result("Crashed at x%.2f" % crash_at, UIKit.DIM)
+			set_result("Crashed at x%.2f" % _crash_at, UIKit.DIM)
+	_hint.text = "Press PLAY — then CASH OUT before the crash."
+
+
+func stop_auto() -> void:
+	super.stop_auto()
+	_climbing = false
