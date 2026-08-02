@@ -13,6 +13,7 @@ const CasinoPanel := preload("res://ui/casino_panel.gd")
 const SkillsPanel := preload("res://ui/skills_panel.gd")
 const PrestigePanel := preload("res://ui/prestige_panel.gd")
 const StatsPanel := preload("res://ui/stats_panel.gd")
+const SettingsPanel := preload("res://ui/settings_panel.gd")
 
 const MAX_TOASTS := 5
 const PLAY_TAB_INDEX := 1
@@ -74,7 +75,6 @@ func _tab_container(font_size: int) -> TabContainer:
 
 func _build_tabs() -> Control:
 	_main_tabs = _tab_container(17)
-	# Leaving the Play tab entirely should kill any running auto-play.
 	_main_tabs.tab_changed.connect(_on_main_tab_changed)
 
 	var casino := CasinoPanel.new()
@@ -97,12 +97,15 @@ func _build_tabs() -> Control:
 	stats.name = "📊 Records"
 	_main_tabs.add_child(stats)
 
+	var settings := SettingsPanel.new()
+	settings.name = "⚙️ Settings"
+	_main_tabs.add_child(settings)
+
 	return _main_tabs
 
 
 func _build_play_tab() -> Control:
 	var tabs := _tab_container(15)
-	# Auto-play must not keep running on a table you have navigated away from.
 	tabs.tab_changed.connect(_on_game_tab_changed)
 
 	for entry in [[SlotMachine, "🎰 Slots"], [Roulette, "🎡 Roulette"],
@@ -118,12 +121,14 @@ func _build_play_tab() -> Control:
 func _on_main_tab_changed(index: int) -> void:
 	if index != PLAY_TAB_INDEX:
 		_stop_all_auto()
+	AudioManager.play_click()
 
 
 func _on_game_tab_changed(_index: int) -> void:
 	for game in _minigames:
 		if is_instance_valid(game) and not game.is_visible_in_tree():
 			game.stop_auto()
+	AudioManager.play_click()
 
 
 func _stop_all_auto() -> void:
@@ -140,35 +145,17 @@ func _build_footer() -> Control:
 	save_button.pressed.connect(_on_save_pressed)
 	row.add_child(save_button)
 
-	var reset_button := UIKit.button("🗑  Reset Save", 14, UIKit.RED)
-	reset_button.custom_minimum_size = Vector2(130, 36)
-	reset_button.pressed.connect(_on_reset_pressed)
-	row.add_child(reset_button)
-
 	row.add_child(UIKit.spacer())
 	row.add_child(UIKit.label(
 		"Autosaves every %ds  ·  offline earnings while closed" % int(SaveManager.AUTOSAVE_INTERVAL),
 		12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("CasinoIdle v0.2.1", 12, UIKit.DIM))
+	row.add_child(UIKit.label("CasinoIdle v0.3.0", 12, UIKit.DIM))
 	return row
 
 
 func _on_save_pressed() -> void:
 	SaveManager.save_game(false)
-
-
-func _on_reset_pressed() -> void:
-	if not _reset_confirming:
-		_reset_confirming = true
-		GameManager.notify_toast("Click Reset Save again within 4s to wipe everything", UIKit.ORANGE)
-		await get_tree().create_timer(4.0).timeout
-		_reset_confirming = false
-		return
-
-	_reset_confirming = false
-	SaveManager.wipe_save()
-	GameManager.notify_toast("Save wiped — starting fresh", UIKit.RED)
 
 
 # ===========================================================================
@@ -251,7 +238,10 @@ func _show_offline_report() -> void:
 
 	var ok := UIKit.primary_button("COLLECT", 18, UIKit.GOLD)
 	ok.custom_minimum_size = Vector2(0, 44)
-	ok.pressed.connect(dim.queue_free)
+	ok.pressed.connect(func():
+		AudioManager.play_click()
+		dim.queue_free()
+	)
 	col.add_child(ok)
 
 	panel.add_child(col)
