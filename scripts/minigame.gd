@@ -2,7 +2,7 @@ class_name Minigame
 extends Control
 
 ## Shared shell for every gambling game: bet controls, play/auto buttons, result
-## line, wager bookkeeping and the capped RTP bonus.
+## line, per-table upgrades, wager bookkeeping and the capped RTP bonus.
 
 const AUTO_DELAY := 0.35
 const HARD_BET_CAP := 1e15
@@ -23,6 +23,8 @@ var bet_label: Label
 var play_button: Button
 var auto_button: Button
 var odds_label: Label
+var _upgrade_box: VBoxContainer
+var _upgrade_rows: Dictionary = {}
 
 var _bet_initialised := false
 
@@ -34,7 +36,10 @@ func _ready() -> void:
 	_build_board(board)
 	_sync_bet()
 	_refresh_controls()
+	_refresh_upgrades()
 	GameManager.chips_changed.connect(_on_chips_changed)
+	GameManager.skill_points_changed.connect(func(_p): _refresh_upgrades())
+	GameUpgrades.changed.connect(_refresh_upgrades)
 
 
 func _build_shell() -> void:
@@ -54,45 +59,97 @@ func _build_shell() -> void:
 	root.add_child(header)
 	root.add_child(UIKit.separator())
 
+	var body := UIKit.hbox(14)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var left := UIKit.vbox(10)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board = UIKit.vbox(10)
 	board.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(board)
-
+	left.add_child(board)
 	result_label = UIKit.label("Place your bet.", 20, UIKit.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	result_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.add_child(result_label)
-
-	root.add_child(_build_bet_row())
-
+	left.add_child(result_label)
+	left.add_child(_build_bet_row())
 	var actions := UIKit.hbox(12)
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	play_button = UIKit.primary_button("PLAY", 22, UIKit.GOLD)
 	play_button.custom_minimum_size = Vector2(190, 52)
 	play_button.pressed.connect(_on_play_pressed)
 	actions.add_child(play_button)
-
 	auto_button = UIKit.button("AUTO: OFF", 18, UIKit.GREEN)
 	auto_button.custom_minimum_size = Vector2(150, 52)
 	auto_button.pressed.connect(_on_auto_pressed)
 	actions.add_child(auto_button)
-	root.add_child(actions)
+	left.add_child(actions)
+	body.add_child(left)
+
+	body.add_child(_build_upgrade_panel())
+	root.add_child(body)
+
+
+func _build_upgrade_panel() -> Control:
+	var panel := UIKit.panel(UIKit.PANEL, 10, 1)
+	panel.custom_minimum_size = Vector2(280, 0)
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var col := UIKit.vbox(6)
+	col.add_child(UIKit.label("Table Upgrades", 16, UIKit.GOLD))
+	col.add_child(UIKit.wrapped("Skill points · reset on prestige", 11, UIKit.DIM))
+	_upgrade_box = UIKit.vbox(6)
+	col.add_child(_upgrade_box)
+	panel.add_child(col)
+	return panel
+
+
+func _refresh_upgrades() -> void:
+	if _upgrade_box == null:
+		return
+	for child in _upgrade_box.get_children():
+		child.queue_free()
+	_upgrade_rows.clear()
+	for d in GameUpgrades.defs_for(game_id):
+		var id := String(d["id"])
+		var rank := GameUpgrades.level(game_id, id)
+		var max_r := int(d["max"])
+		var row := UIKit.panel(UIKit.PANEL_HI if rank > 0 else UIKit.PANEL, 6, 1)
+		var inner := UIKit.vbox(2)
+		var head := UIKit.hbox(6)
+		head.add_child(UIKit.label(String(d["icon"]), 16))
+		var title := UIKit.label(String(d["name"]), 13, UIKit.TEXT)
+		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(title)
+		head.add_child(UIKit.label("%d/%d" % [rank, max_r], 12, UIKit.DIM))
+		inner.add_child(head)
+		inner.add_child(UIKit.label(String(d["effect_label"]), 11, UIKit.CYAN))
+		var buy := UIKit.button("MAX" if GameUpgrades.maxed(game_id, id) else "%d SP" % GameUpgrades.cost(game_id, id), 12, UIKit.GOLD)
+		buy.custom_minimum_size = Vector2(0, 28)
+		buy.disabled = not GameUpgrades.can_buy(game_id, id)
+		buy.pressed.connect(_buy_upgrade.bind(id))
+		inner.add_child(buy)
+		row.add_child(inner)
+		_upgrade_box.add_child(row)
+		_upgrade_rows[id] = buy
+
+
+func _buy_upgrade(id: String) -> void:
+	if GameUpgrades.buy(game_id, id):
+		_refresh_controls()
+		_sync_bet()
 
 
 func _build_bet_row() -> Control:
 	var row := UIKit.hbox(8)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-
 	bet_label = UIKit.label("Bet: 10", 18, UIKit.GOLD)
 	bet_label.custom_minimum_size = Vector2(190, 0)
 	bet_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(bet_label)
-
 	for entry in [["/10", 0.1], ["/2", 0.5], ["x2", 2.0], ["x10", 10.0]]:
 		var b := UIKit.button(String(entry[0]), 15)
 		b.custom_minimum_size = Vector2(52, 34)
 		b.pressed.connect(_scale_bet.bind(float(entry[1])))
 		row.add_child(b)
-
 	var max_button := UIKit.button("MAX", 15, UIKit.GOLD)
 	max_button.custom_minimum_size = Vector2(58, 34)
 	max_button.pressed.connect(_max_bet)
@@ -101,7 +158,7 @@ func _build_bet_row() -> Control:
 
 
 func max_bet() -> float:
-	var soft := maxf(10.0, GameManager.chips * GameManager.max_bet_fraction())
+	var soft := maxf(10.0, GameManager.chips * GameManager.max_bet_fraction() * GameUpgrades.bet_multiplier(game_id))
 	return minf(soft, HARD_BET_CAP)
 
 
@@ -146,7 +203,7 @@ func _refresh_controls() -> void:
 
 
 func effective_rtp() -> float:
-	return minf(base_rtp + GameManager.rtp_bonus(), GameManager.MAX_EFFECTIVE_RTP)
+	return minf(base_rtp + GameManager.rtp_bonus() + GameUpgrades.rtp_bonus(game_id), GameManager.MAX_EFFECTIVE_RTP)
 
 
 func _on_play_pressed() -> void:
@@ -192,7 +249,7 @@ func _run_auto() -> void:
 		await play_once()
 		if not auto or not is_inside_tree():
 			break
-		await wait(AUTO_DELAY * GameManager.auto_delay_multiplier())
+		await wait(AUTO_DELAY * GameManager.auto_delay_multiplier() * GameUpgrades.auto_multiplier(game_id))
 	busy = false
 	_refresh_controls()
 
@@ -223,12 +280,9 @@ func finish_round(payout: float, loss_probability: float, is_jackpot: bool = fal
 	if payout <= 0.0 and _roll_fortune(loss_probability):
 		credited = last_wager
 		refunded = true
-
 	if credited > 0.0:
 		GameManager.add_chips(credited, not refunded)
-
 	GameManager.record_result(payout, last_wager, is_jackpot)
-
 	if refunded:
 		set_result("Close one — stake refunded.", UIKit.BLUE)
 		FX.float_text(self, "REFUND", UIKit.BLUE, size * 0.5, 24)
@@ -244,7 +298,8 @@ func fortune_refund_chance(loss_probability: float) -> float:
 	if loss_probability <= 0.0:
 		return 0.0
 	var deficit := maxf(effective_rtp() - base_rtp, 0.0)
-	return clampf(deficit / loss_probability, 0.0, 1.0)
+	var base := clampf(deficit / loss_probability, 0.0, 1.0)
+	return clampf(base + GameUpgrades.fortune_bonus(game_id), 0.0, 0.40)
 
 
 func _roll_fortune(loss_probability: float) -> bool:
@@ -254,7 +309,7 @@ func _roll_fortune(loss_probability: float) -> bool:
 func wait(seconds: float) -> void:
 	if not is_inside_tree():
 		return
-	var scaled := maxf(seconds * GameManager.speed_multiplier(), 0.01)
+	var scaled := maxf(seconds * GameManager.speed_multiplier() * GameUpgrades.speed_multiplier(game_id), 0.01)
 	await get_tree().create_timer(scaled).timeout
 
 
