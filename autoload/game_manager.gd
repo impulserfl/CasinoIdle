@@ -21,14 +21,12 @@ signal prestige_changed(count: int)
 signal stats_changed()
 signal toast(text: String, color: Color)
 
-## No stack of upgrades may push a minigame to or past break-even.
 const MAX_EFFECTIVE_RTP := 0.99
 const BASE_START_CHIPS := 250.0
 const BASE_PRESTIGE_REQUIREMENT := 10000.0
 const EXP_CURVE_BASE := 50.0
 const EXP_CURVE_POWER := 1.55
 
-# --- run state (wiped by prestige) -----------------------------------------
 var chips: float = BASE_START_CHIPS:
 	set(value):
 		if not is_finite(value):
@@ -41,18 +39,11 @@ var experience: float = 0.0
 var level: int = 1
 var skill_points: int = 0
 
-# --- meta state (survives prestige) ----------------------------------------
 var prestige_count: int = 0
 var gold_chips: float = 0.0
 
-# --- lifetime stats --------------------------------------------------------
 var stats: Dictionary = {}
-
-## Toasts raised by autoloads during their own _ready() (save migration, offline
-## earnings, early achievements) happen before the main scene can connect, so
-## they are buffered here and drained once a listener exists.
 var pending_toasts: Array[Dictionary] = []
-
 var _session_start_msec: int = 0
 
 
@@ -61,7 +52,6 @@ func _ready() -> void:
 	_session_start_msec = Time.get_ticks_msec()
 
 
-## Always raise player-facing messages through this, never `toast.emit` directly.
 func notify_toast(text: String, color: Color) -> void:
 	if toast.get_connections().is_empty():
 		pending_toasts.append({"text": text, "color": color})
@@ -69,7 +59,6 @@ func notify_toast(text: String, color: Color) -> void:
 		toast.emit(text, color)
 
 
-## Called by the main scene once it has connected to `toast`.
 func drain_pending_toasts() -> void:
 	var queued := pending_toasts.duplicate()
 	pending_toasts.clear()
@@ -99,12 +88,6 @@ func _process(delta: float) -> void:
 	stats["play_time"] = float(stats.get("play_time", 0.0)) + delta
 
 
-# ===========================================================================
-# CURRENCY
-# ===========================================================================
-
-## `count_as_earned` is false for refunds/rebates so they do not inflate the
-## prestige payout or the lifetime-earned stat.
 func add_chips(amount: float, count_as_earned: bool = true) -> void:
 	if amount <= 0.0 or not is_finite(amount):
 		return
@@ -136,16 +119,10 @@ func spend_gold_chips(amount: float) -> bool:
 	return true
 
 
-# ===========================================================================
-# EXPERIENCE / LEVELS
-# ===========================================================================
-
 func exp_to_next() -> float:
 	return EXP_CURVE_BASE * pow(float(level), EXP_CURVE_POWER)
 
 
-## `raw` is pre-multiplier; the EXP multiplier is applied here so callers never
-## have to remember to do it.
 func add_experience(raw: float) -> void:
 	if raw <= 0.0 or not is_finite(raw):
 		return
@@ -162,6 +139,7 @@ func add_experience(raw: float) -> void:
 		level_changed.emit(level)
 		skill_points_changed.emit(skill_points)
 		notify_toast("LEVEL %d!  +1 skill point" % level, UIKit.BLUE)
+		AudioManager.play_level_up()
 	experience_changed.emit(experience, exp_to_next(), level)
 
 
@@ -180,29 +158,26 @@ func grant_skill_points(amount: int) -> void:
 	skill_points_changed.emit(skill_points)
 
 
-# ===========================================================================
-# DERIVED MULTIPLIERS
-# ===========================================================================
-
 func exp_multiplier() -> float:
 	var m := 1.0 + 0.08 * float(Upgrades.skill_level("lucky_streak"))
+	m += 0.05 * float(Upgrades.skill_level("comp_cards"))
 	m *= 1.0 + 0.20 * float(Upgrades.prestige_rank("veteran"))
 	return m
 
 
-## Applies to passive casino income only -- never to minigame payouts.
 func income_multiplier() -> float:
 	var m := 1.0 + 0.10 * float(Upgrades.skill_level("floor_manager"))
+	m += 0.04 * float(Upgrades.skill_level("pit_boss"))
 	m *= 1.0 + 0.12 * float(Upgrades.prestige_rank("golden_touch"))
 	m *= 1.0 + 0.05 * float(prestige_count)
 	m *= 1.0 + 0.01 * float(Achievements.unlocked_count())
 	return m
 
 
-## Additive RTP bonus, before the MAX_EFFECTIVE_RTP clamp applied per-game.
 func rtp_bonus() -> float:
 	return 0.005 * float(Upgrades.skill_level("card_counter")) \
-		+ 0.004 * float(Upgrades.prestige_rank("loaded_dice"))
+		+ 0.004 * float(Upgrades.prestige_rank("loaded_dice")) \
+		+ 0.0025 * float(Upgrades.prestige_rank("house_edge"))
 
 
 func cost_discount() -> float:
@@ -211,12 +186,14 @@ func cost_discount() -> float:
 	return clampf(d, 0.0, 0.75)
 
 
-## Multiplies minigame animation durations (lower is faster).
 func speed_multiplier() -> float:
 	return maxf(0.15, 1.0 - 0.08 * float(Upgrades.skill_level("quick_hands")))
 
 
-## Fraction of your bank you may put on a single wager.
+func auto_delay_multiplier() -> float:
+	return maxf(0.35, 1.0 - 0.06 * float(Upgrades.skill_level("chip_runner")))
+
+
 func max_bet_fraction() -> float:
 	return clampf(0.05 * (1.0 + 0.5 * float(Upgrades.skill_level("high_roller"))), 0.05, 1.0)
 
@@ -228,15 +205,11 @@ func offline_cap_seconds() -> float:
 
 
 func offline_efficiency() -> float:
-	return clampf(0.50 + 0.05 * float(Upgrades.skill_level("scout")), 0.0, 1.0)
+	var e := 0.50 + 0.05 * float(Upgrades.skill_level("scout")) \
+		+ 0.04 * float(Upgrades.prestige_rank("time_lord"))
+	return clampf(e, 0.0, 1.0)
 
 
-# ===========================================================================
-# WAGER BOOKKEEPING
-# ===========================================================================
-
-## EXP from a wager scales with sqrt(bet) so that exponential chip growth does
-## not translate into exponential level growth.
 func record_wager(game_id: String, amount: float) -> void:
 	stats["total_wagered"] = float(stats.get("total_wagered", 0.0)) + amount
 	stats["total_wagers"] = int(stats.get("total_wagers", 0)) + 1
@@ -262,11 +235,6 @@ func record_result(payout: float, wager: float, is_jackpot: bool) -> void:
 	stats_changed.emit()
 
 
-# ===========================================================================
-# PRESTIGE
-# ===========================================================================
-
-## Scales gently so later prestiges still feel like a goal without becoming absurd.
 func prestige_requirement() -> float:
 	return BASE_PRESTIGE_REQUIREMENT * (1.0 + 0.18 * float(prestige_count))
 
@@ -296,16 +264,17 @@ func do_prestige() -> bool:
 	prestige_changed.emit(prestige_count)
 	stats_changed.emit()
 	notify_toast("PRESTIGE %d  →  +%s gold chips" % [prestige_count, Fmt.chips(gained)], UIKit.PURPLE)
+	AudioManager.play_prestige()
 	Achievements.check_all()
 	return true
 
 
-## Resets everything a prestige wipes, then re-applies the permanent head starts.
 func reset_run() -> void:
 	Upgrades.reset_skills()
 	Casino.reset()
 
 	var start_mult := pow(2.0, float(Upgrades.prestige_rank("head_start")))
+	start_mult *= 1.0 + 0.15 * float(Upgrades.prestige_rank("silver_spoon"))
 	chips = BASE_START_CHIPS * start_mult
 	run_chips_earned = 0.0
 	experience = 0.0
@@ -319,7 +288,6 @@ func reset_run() -> void:
 	experience_changed.emit(experience, exp_to_next(), level)
 
 
-## Pushes every signal so freshly-built UI can sync without special-casing.
 func broadcast() -> void:
 	chips_changed.emit(chips)
 	level_changed.emit(level)
