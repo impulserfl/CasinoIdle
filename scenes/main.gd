@@ -15,9 +15,12 @@ const PrestigePanel := preload("res://ui/prestige_panel.gd")
 const StatsPanel := preload("res://ui/stats_panel.gd")
 
 const MAX_TOASTS := 5
+const PLAY_TAB_INDEX := 1
 
 var _toast_box: VBoxContainer
 var _minigames: Array[Minigame] = []
+var _main_tabs: TabContainer
+var _reset_confirming := false
 
 
 func _ready() -> void:
@@ -70,29 +73,31 @@ func _tab_container(font_size: int) -> TabContainer:
 
 
 func _build_tabs() -> Control:
-	var tabs := _tab_container(17)
+	_main_tabs = _tab_container(17)
+	# Leaving the Play tab entirely should kill any running auto-play.
+	_main_tabs.tab_changed.connect(_on_main_tab_changed)
 
 	var casino := CasinoPanel.new()
 	casino.name = "🏛️ Casino"
-	tabs.add_child(casino)
+	_main_tabs.add_child(casino)
 
 	var play := _build_play_tab()
 	play.name = "🎲 Play"
-	tabs.add_child(play)
+	_main_tabs.add_child(play)
 
 	var skills := SkillsPanel.new()
 	skills.name = "🎓 Skills"
-	tabs.add_child(skills)
+	_main_tabs.add_child(skills)
 
 	var prestige := PrestigePanel.new()
 	prestige.name = "♻️ Prestige"
-	tabs.add_child(prestige)
+	_main_tabs.add_child(prestige)
 
 	var stats := StatsPanel.new()
 	stats.name = "📊 Records"
-	tabs.add_child(stats)
+	_main_tabs.add_child(stats)
 
-	return tabs
+	return _main_tabs
 
 
 func _build_play_tab() -> Control:
@@ -110,9 +115,20 @@ func _build_play_tab() -> Control:
 	return tabs
 
 
+func _on_main_tab_changed(index: int) -> void:
+	if index != PLAY_TAB_INDEX:
+		_stop_all_auto()
+
+
 func _on_game_tab_changed(_index: int) -> void:
 	for game in _minigames:
 		if is_instance_valid(game) and not game.is_visible_in_tree():
+			game.stop_auto()
+
+
+func _stop_all_auto() -> void:
+	for game in _minigames:
+		if is_instance_valid(game):
 			game.stop_auto()
 
 
@@ -120,21 +136,39 @@ func _build_footer() -> Control:
 	var row := UIKit.hbox(10)
 
 	var save_button := UIKit.button("💾  Save", 15, UIKit.GREEN)
-	save_button.custom_minimum_size = Vector2(130, 36)
+	save_button.custom_minimum_size = Vector2(120, 36)
 	save_button.pressed.connect(_on_save_pressed)
 	row.add_child(save_button)
 
+	var reset_button := UIKit.button("🗑  Reset Save", 14, UIKit.RED)
+	reset_button.custom_minimum_size = Vector2(130, 36)
+	reset_button.pressed.connect(_on_reset_pressed)
+	row.add_child(reset_button)
+
 	row.add_child(UIKit.spacer())
 	row.add_child(UIKit.label(
-		"Autosaves every %ds  -  offline earnings while closed" % int(SaveManager.AUTOSAVE_INTERVAL),
+		"Autosaves every %ds  ·  offline earnings while closed" % int(SaveManager.AUTOSAVE_INTERVAL),
 		12, UIKit.DIM))
 	row.add_child(UIKit.spacer())
-	row.add_child(UIKit.label("CasinoIdle v0.2", 12, UIKit.DIM))
+	row.add_child(UIKit.label("CasinoIdle v0.2.1", 12, UIKit.DIM))
 	return row
 
 
 func _on_save_pressed() -> void:
 	SaveManager.save_game(false)
+
+
+func _on_reset_pressed() -> void:
+	if not _reset_confirming:
+		_reset_confirming = true
+		GameManager.notify_toast("Click Reset Save again within 4s to wipe everything", UIKit.ORANGE)
+		await get_tree().create_timer(4.0).timeout
+		_reset_confirming = false
+		return
+
+	_reset_confirming = false
+	SaveManager.wipe_save()
+	GameManager.notify_toast("Save wiped — starting fresh", UIKit.RED)
 
 
 # ===========================================================================
