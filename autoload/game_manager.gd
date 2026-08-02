@@ -205,7 +205,8 @@ func record_wager(game_id: String, amount: float) -> void:
 	var plays: Dictionary = stats.get("plays", {})
 	plays[game_id] = int(plays.get(game_id, 0)) + 1
 	stats["plays"] = plays
-	add_experience(2.0 * sqrt(maxf(amount, 0.0)))
+	var table_exp := 2.0 * sqrt(maxf(amount, 0.0)) * GameUpgrades.exp_multiplier(game_id)
+	add_experience(table_exp)
 	stats_changed.emit()
 
 
@@ -258,6 +259,7 @@ func do_prestige() -> bool:
 
 func reset_run() -> void:
 	Upgrades.reset_skills()
+	GameUpgrades.reset()
 	Casino.reset()
 	var start_mult := pow(2.0, float(Upgrades.prestige_rank("head_start")))
 	start_mult *= 1.0 + 0.15 * float(Upgrades.prestige_rank("silver_spoon"))
